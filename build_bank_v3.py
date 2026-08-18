@@ -6,8 +6,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 from pathlib import Path
 
-from pypdf import PdfReader
-
 BASE = 'https://socialworkerdaily.com/'
 MOEX = 'https://wwwq.moex.gov.tw/exam/wHandExamQandA_File.ashx'
 YEARS = [str(y) for y in range(110, 116)]
@@ -44,23 +42,18 @@ class Extractor(HTMLParser):
         return s.strip()
 
 def fetch(url):
-    req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 social-worker-exam-builder/6.0','Accept':'text/html,application/xhtml+xml'})
-    with urllib.request.urlopen(req,timeout=60) as r: raw=r.read()
-    return raw
-
-def fetch_html(url):
-    return Extractor().text() if False else ExtractorText(fetch(url))
+    req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 social-worker-exam-builder/7.0','Accept':'text/html,application/xhtml+xml,application/pdf'})
+    with urllib.request.urlopen(req,timeout=60) as r: return r.read()
 
 def ExtractorText(raw):
     p=Extractor(); p.feed(raw.decode('utf-8',errors='ignore')); return p.text()
 
 def fetch_pdf_text(url):
-    raw=fetch(url)
-    reader=PdfReader(io.BytesIO(raw))
+    from pypdf import PdfReader
+    reader=PdfReader(io.BytesIO(fetch(url)))
     return '\n'.join((page.extract_text() or '') for page in reader.pages)
 
 def clean(s): return re.sub(r'[ \t\r\n]+',' ',s).strip()
-
 def norm_answer(s): return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
 
 def parse_page(text):
@@ -91,8 +84,17 @@ def parse_page(text):
     unique={x['number']:x for x in out}
     return [unique[n] for n in sorted(unique)]
 
-def exam_code(year, session):
-    return f'{year}{"030" if session=="1" else "100"}'
+def parse_official_subject_questions(text, subject_code):
+    hits=list(re.finditer(r'(?m)^\s*'+re.escape(subject_code)+r'\s*$',text))
+    if not hits: raise ValueError(f'找不到考選部科目代碼 {subject_code} 的試題區段')
+    start=hits[0].start()
+    nxt=re.search(r'(?m)^\s*\d{4}\s*$',text[hits[0].end():])
+    end=hits[0].end()+nxt.start() if nxt else len(text)
+    block=text[start:end]
+    qs=parse_page(block)
+    if len(qs)!=40 or [q['number'] for q in qs]!=list(range(1,41)):
+        raise ValueError(f'官方試題 {subject_code} 題目結構異常：解析到{len(qs)}題')
+    return qs
 
 def parse_official_answers(text, subject_code):
     hits=list(re.finditer(r'(?m)^\s*'+re.escape(subject_code)+r'\s*$',text))
@@ -119,19 +121,15 @@ def parse_official_answers(text, subject_code):
         if vals: accepted[int(m.group(1))]=sorted(set(vals))
     return accepted
 
+def exam_code(year, session): return f'{year}{"030" if session=="1" else "100"}'
+
 def candidate_urls(year,slug):
-    sessions=['1'] if year=='115' else ['1','2']
-    return [(s,f'{BASE}{year}-{s}-{slug}/') for s in sessions]
+    return [('1',f'{BASE}{year}-1-{slug}/'),('2',f'{BASE}{year}-2-{slug}/')]
 
 def build_one(year,subject,slug,code):
     results=[]; failures=[]
-    for session,url in candidate_urls(year,slug):
-        try: text=ExtractorText(fetch(url))
-        except Exception as e:
-            failures.append({'year':year,'session':session,'subject':subject,'stage':'source','url':url,'error':str(e)}); continue
-        qs=parse_page(text)
-        if len(qs)!=40 or [q['number'] for q in qs]!=list(range(1,41)):
-            failures.append({'year':year,'session':session,'subject':subject,'stage':'source','url':url,'error':f'題目結構異常：解析到{len(qs)}題'}); continue
+    sessions=['1','2']
+    for session in sessions:
         try:
             code_full=exam_code(year,session)
             answer_url=f'{MOEX}?code={code_full}&t=A'
@@ -139,20 +137,43 @@ def build_one(year,subject,slug,code):
             accepted=parse_official_answers(official_text,code)
         except Exception as e:
             failures.append({'year':year,'session':session,'subject':subject,'stage':'official-answer','error':str(e)}); continue
+
+        if year=='115' and session=='2':
+            # 115-2 is not currently listed by Socialworkerdaily; use the official MOEX question PDF.
+            question_url=f'{MOEX}?code={code_full}&t=Q'
+            try:
+                qs=parse_official_subject_questions(fetch_pdf_text(question_url),code)
+            except Exception as e:
+                failures.append({'year':year,'session':session,'subject':subject,'stage':'official-question','url':question_url,'error':str(e)}); continue
+            source_url=question_url
+            source_name='考選部官方考畢試題'
+            explanation_source='考選部官方試題未提供解析'
+            source_explanation='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
+        else:
+            _,url=candidate_urls(year,slug)[0 if session=='1' else 1]
+            try: text=ExtractorText(fetch(url))
+            except Exception as e:
+                failures.append({'year':year,'session':session,'subject':subject,'stage':'source','url':url,'error':str(e)}); continue
+            qs=parse_page(text)
+            if len(qs)!=40 or [q['number'] for q in qs]!=list(range(1,41)):
+                failures.append({'year':year,'session':session,'subject':subject,'stage':'source','url':url,'error':f'題目結構異常：解析到{len(qs)}題'}); continue
+            source_url=url
+            source_name='社工日常 socialworkerdaily'
+            explanation_source='社工日常解析'
+            source_explanation=''
+
         for q in qs:
             vals=accepted[q['number']]
             primary=vals[0]
+            exp=q.get('explanation','') or source_explanation
             results.append({
                 'id':f'{year}-{session}-{subject}-{q["number"]}',
                 'year':year,'session':session,'subject':subject,'number':q['number'],
-                'question':q['question'],'choices':q['choices'],
-                'answer':primary,'accepted_answers':vals,
-                'explanation':q['explanation'],
-                'source':url,'answer_source':answer_url,
-                'source_name':'社工日常 socialworkerdaily',
-                'answer_authority':'考選部測驗式試題標準答案',
-                'answer_verified':True,
-                'explanation_source':'社工日常解析','corrected':len(vals)!=1
+                'question':q['question'],'choices':q['choices'],'answer':primary,'accepted_answers':vals,
+                'explanation':exp,'source':source_url,'answer_source':answer_url,
+                'source_name':source_name,'answer_authority':'考選部測驗式試題標準答案',
+                'answer_verified':True,'explanation_source':explanation_source,
+                'corrected':len(vals)!=1
             })
     return results, failures
 
@@ -172,16 +193,14 @@ def main():
     papers=sorted({(x['year'],x['session'],x['subject']) for x in all_items})
     meta={
         'generated_from':BASE+'index/exam/',
-        'answer_authority':'考選部測驗式試題標準答案',
-        'source_name':'社工日常 socialworkerdaily',
-        'years':YEARS,'subjects':list(SUBJECTS.keys()),
-        'papers_selected':55,'papers_ok':len(papers),'papers_failed':len(failures),
-        'items':len(all_items),'failures':failures,
-        'parser_version':'socialworkerdaily-6.0 + MOEX-answer-verification-1.0'
+        'official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026',
+        'answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2',
+        'years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),
+        'items':len(all_items),'failures':failures,'parser_version':'socialworkerdaily-7.0 + MOEX-answer-verification-2.0 + official-115-2'
     }
     (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
     print(json.dumps(meta,ensure_ascii=False,indent=2))
-    if len(papers)!=55 or len(all_items)!=len(papers)*40 or failures:
+    if len(papers)!=60 or len(all_items)!=len(papers)*40 or failures:
         raise SystemExit(1)
 
 if __name__=='__main__': main()
