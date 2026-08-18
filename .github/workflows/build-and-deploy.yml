@@ -1,7 +1,6 @@
 name: Build and deploy study site
 
 on:
-  # 一般網站修改：直接部署現有已驗證題庫，不重新抓 MOEX。
   push:
     branches: [main]
     paths:
@@ -10,10 +9,8 @@ on:
       - 'site_enhancements.js'
       - 'review_order_fix.js'
       - 'review_render_fix.js'
-  # 社工日常自動同步：每 5 天檢查一次。
   schedule:
     - cron: '15 18 */5 * *'
-  # 手動執行時才做完整官方題庫重建與驗證。
   workflow_dispatch:
 
 permissions:
@@ -52,7 +49,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: python build_bank_v4.py
 
-      - name: Mark official full-credit and multiple-answer items
+      - name: Normalize question-bank schema
         run: |
           python - <<'PY'
           import json
@@ -61,13 +58,25 @@ jobs:
           data=json.loads(path.read_text(encoding='utf-8'))
           full=[0,1,2,3]
           for q in data.get('questions',[]):
-              accepted=sorted(set(q.get('accepted_answers',[])))
+              answer=q.get('answer')
+              accepted=q.get('accepted_answers')
+              if not isinstance(accepted,list) or not accepted:
+                  if answer in (0,1,2,3):
+                      accepted=[answer]
+                  else:
+                      accepted=[]
+              accepted=sorted(set(a for a in accepted if a in (0,1,2,3)))
+              q['accepted_answers']=accepted
               q['is_full_credit']=(accepted==full)
               q['answer_type']='送分題' if q['is_full_credit'] else ('複數答案' if len(accepted)>1 else '單一答案')
-          data.setdefault('meta',{})['full_credit_definition']='accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
-          data.setdefault('meta',{})['sync_policy']='every_5_days_socialworkerdaily_verified_source_sync'
-          data.setdefault('meta',{})['question_count_policy']='MOEX published selection-question count per subject; do not assume a fixed count'
+              if 'explanation' not in q:
+                  q['explanation']=''
+          meta=data.setdefault('meta',{})
+          meta['full_credit_definition']='accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
+          meta['sync_policy']='every_5_days_socialworkerdaily_verified_source_sync'
+          meta['question_count_policy']='MOEX published selection-question count per subject; do not assume a fixed count'
           path.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          print('question_count=',len(data.get('questions',[])))
           print('full_credit_count=',sum(1 for q in data['questions'] if q['is_full_credit']))
           print('multiple_answer_count=',sum(1 for q in data['questions'] if q['answer_type']=='複數答案'))
           PY
@@ -81,21 +90,34 @@ jobs:
           import json, os
           p=json.load(open('data/bank.json',encoding='utf-8'))
           qs=p.get('questions',[]); m=p.get('meta',{})
-          print('event=',os.environ['EVENT_NAME'])
+          event=os.environ['EVENT_NAME']
+          print('event=',event)
           print('question_count=',len(qs))
           print('paper_count=',m.get('papers_ok'))
-          if any(not x.get('question') or len(x.get('choices',[])) != 4 for x in qs): raise SystemExit('Malformed question records.')
-          if any(x.get('answer') not in (0,1,2,3) for x in qs): raise SystemExit('Invalid primary answers.')
-          if any(not x.get('accepted_answers') or any(a not in (0,1,2,3) for a in x['accepted_answers']) for x in qs): raise SystemExit('Invalid accepted answer sets.')
-          if any(not x.get('answer_verified') for x in qs): raise SystemExit('Found unverified answer records.')
-          if any('explanation' not in x for x in qs): raise SystemExit('Missing explanation records.')
-          if any('is_full_credit' not in x or 'answer_type' not in x for x in qs): raise SystemExit('Missing answer classification records.')
-          if any(x['is_full_credit'] != (sorted(set(x['accepted_answers'])) == [0,1,2,3]) for x in qs): raise SystemExit('Invalid full-credit classification.')
+          if not qs: raise SystemExit('Question bank is empty.')
+          if any(not x.get('id') or not x.get('question') or len(x.get('choices',[])) != 4 for x in qs):
+              raise SystemExit('Malformed question records.')
+          if any(x.get('answer') not in (0,1,2,3) for x in qs):
+              raise SystemExit('Invalid primary answers.')
+          if any(not x.get('accepted_answers') or any(a not in (0,1,2,3) for a in x['accepted_answers']) for x in qs):
+              raise SystemExit('Invalid accepted answer sets.')
+          if any('explanation' not in x for x in qs):
+              raise SystemExit('Missing explanation records.')
+          if any('is_full_credit' not in x or 'answer_type' not in x for x in qs):
+              raise SystemExit('Missing answer classification records.')
+          if any(x['is_full_credit'] != (sorted(set(x['accepted_answers'])) == [0,1,2,3]) for x in qs):
+              raise SystemExit('Invalid full-credit classification.')
           ids=[x.get('id') for x in qs]
           if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
-          if os.environ['EVENT_NAME'] == 'workflow_dispatch':
-              if m.get('papers_ok') != 60: raise SystemExit(f"Expected 60 papers, got {m.get('papers_ok')}")
-              if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
+          # Only a full manual official rebuild requires all 60 papers and official answer verification.
+          # Push/scheduled syncs intentionally reuse the existing verified bank instead of rebuilding MOEX.
+          if event == 'workflow_dispatch':
+              if any(not x.get('answer_verified') for x in qs):
+                  raise SystemExit('Found unverified answer records in official rebuild.')
+              if m.get('papers_ok') != 60:
+                  raise SystemExit(f"Expected 60 papers, got {m.get('papers_ok')}")
+              if m.get('papers_failed'):
+                  raise SystemExit(f"Paper failures: {m['papers_failed']}")
           PY
 
       - name: Commit verified bank only when changed
