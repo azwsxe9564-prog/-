@@ -1,0 +1,23 @@
+name: Build core keyword frequency
+on:
+  push:
+    branches: [main]
+    paths:
+      - data/bank.json
+      - data/core_keywords.json
+      - scripts/build_keyword_frequency.py
+permissions:
+  contents: write
+jobs:
+  rank:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ranking
+        run: python scripts/build_keyword_frequency.py
+      - name: Commit ranking
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/core_keywords_ranked.json
+          if git diff --cached --quiet; then echo "No changes"; else git commit -m "Update core keyword frequency ranking"; git push; fi
