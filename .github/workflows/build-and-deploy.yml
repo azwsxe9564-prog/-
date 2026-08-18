@@ -10,9 +10,9 @@ on:
       - 'auth.js'
       - 'site_enhancements.js'
       - 'review_order_fix.js'
+      - 'review_render_fix.js'
       - '.github/workflows/build-and-deploy.yml'
   schedule:
-    # 每天台灣時間 02:15 自動檢查社工日常／考選部是否有新題目或官方資料更新
     - cron: '15 18 * * *'
   workflow_dispatch:
 
@@ -108,6 +108,7 @@ jobs:
           cat auth.js >> _site/index.html
           cat site_enhancements.js >> _site/index.html
           cat review_order_fix.js >> _site/index.html
+          cat review_render_fix.js >> _site/index.html
           printf '\n</script>\n' >> _site/index.html
           python - <<'PY'
           from pathlib import Path
