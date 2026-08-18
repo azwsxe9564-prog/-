@@ -1,0 +1,35 @@
+name: Install refined study modes
+on:
+  push:
+    branches: [main]
+    paths:
+      - study_modes_v2.js
+      - .github/workflows/install-study-modes-v2.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inject study modes
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('index_v2.html')
+          s=p.read_text(encoding='utf-8')
+          tag='<script src="study_modes_v2.js?v=2"></script>'
+          if tag not in s:
+              if '</body>' not in s:
+                  raise SystemExit('index_v2.html has no </body>')
+              s=s.replace('</body>',tag+'\n</body>',1)
+              p.write_text(s,encoding='utf-8')
+              print('Injected study_modes_v2.js')
+          else:
+              print('Already installed')
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index_v2.html
+          if git diff --cached --quiet; then echo "No changes needed"; else git commit -m "Enable refined fast Q&A and mock exam modes"; git push; fi
