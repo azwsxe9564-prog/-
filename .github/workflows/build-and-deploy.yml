@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'site_index_v4.html'
-      - 'auth.js'
+      - 'cloud_sync.js'
       - 'site_enhancements.js'
       - 'review_order_fix.js'
       - 'review_render_fix.js'
@@ -27,125 +27,155 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        if: github.event_name != 'push'
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install PDF parser
+
+      - name: Install build dependencies
         if: github.event_name != 'push'
         run: python -m pip install --disable-pip-version-check pypdf
-      - name: Validate builders
+
+      - name: Validate build scripts
         if: github.event_name != 'push'
         run: python -m py_compile build_bank_v4.py sync_socialworkerdaily.py import_1152_official.py
-      - name: Sync Socialworkerdaily source updates
+
+      - name: Sync official source updates
         if: github.event_name == 'schedule'
         run: python sync_socialworkerdaily.py
-      - name: Build verified official question bank
+
+      - name: Rebuild verified official question bank
         if: github.event_name == 'workflow_dispatch'
         run: python build_bank_v4.py
-      - name: Normalize question-bank schema
+
+      - name: Normalize question-bank records
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          path=Path('data/bank.json')
-          data=json.loads(path.read_text(encoding='utf-8'))
-          full=[0,1,2,3]
-          for q in data.get('questions',[]):
-              answer=q.get('answer')
-              accepted=q.get('accepted_answers')
-              if not isinstance(accepted,list) or not accepted:
-                  accepted=[answer] if answer in (0,1,2,3) else []
-              accepted=sorted(set(a for a in accepted if a in (0,1,2,3)))
-              q['accepted_answers']=accepted
-              q['is_full_credit']=(accepted==full)
-              q['answer_type']='送分題' if q['is_full_credit'] else ('複數答案' if len(accepted)>1 else '單一答案')
-              q.setdefault('explanation','')
-          meta=data.setdefault('meta',{})
-          meta['full_credit_definition']='accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
-          meta['sync_policy']='every_5_days_socialworkerdaily_verified_source_sync'
-          meta['question_count_policy']='MOEX published selection-question count per subject; do not assume a fixed count'
-          path.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
-          print('question_count=',len(data.get('questions',[])))
-          print('full_credit_count=',sum(1 for q in data['questions'] if q['is_full_credit']))
-          print('multiple_answer_count=',sum(1 for q in data['questions'] if q['answer_type']=='複數答案'))
+
+          path = Path('data/bank.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          full = [0, 1, 2, 3]
+
+          for q in data.get('questions', []):
+              answer = q.get('answer')
+              accepted = q.get('accepted_answers')
+              if not isinstance(accepted, list) or not accepted:
+                  accepted = [answer] if answer in full else []
+              accepted = sorted(set(a for a in accepted if a in full))
+              q['accepted_answers'] = accepted
+              q['is_full_credit'] = accepted == full
+              q['answer_type'] = (
+                  '送分題' if q['is_full_credit']
+                  else '複數答案' if len(accepted) > 1
+                  else '單一答案'
+              )
+              q.setdefault('explanation', '')
+
+          meta = data.setdefault('meta', {})
+          meta['full_credit_definition'] = 'accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
+          meta['sync_policy'] = 'every_5_days_socialworkerdaily_verified_source_sync'
+          meta['question_count_policy'] = 'MOEX published selection-question count per subject; do not assume a fixed count'
+
+          path.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+          print('question_count=', len(data.get('questions', [])))
+          print('full_credit_count=', sum(1 for q in data['questions'] if q['is_full_credit']))
+          print('multiple_answer_count=', sum(1 for q in data['questions'] if q['answer_type'] == '複數答案'))
           PY
-      - name: Verify generated bank
+
+      - name: Verify question bank
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           test -s data/bank.json
           python - <<'PY'
-          import json, os
-          p=json.load(open('data/bank.json',encoding='utf-8'))
-          qs=p.get('questions',[]); m=p.get('meta',{})
-          event=os.environ['EVENT_NAME']
-          print('event=',event)
-          print('question_count=',len(qs))
-          print('paper_count=',m.get('papers_ok'))
-          if not qs: raise SystemExit('Question bank is empty.')
-          if any(not x.get('id') or not x.get('question') or len(x.get('choices',[])) != 4 for x in qs): raise SystemExit('Malformed question records.')
-          if any(x.get('answer') not in (0,1,2,3) for x in qs): raise SystemExit('Invalid primary answers.')
-          if any(not x.get('accepted_answers') or any(a not in (0,1,2,3) for a in x['accepted_answers']) for x in qs): raise SystemExit('Invalid accepted answer sets.')
-          if any('explanation' not in x for x in qs): raise SystemExit('Missing explanation records.')
-          if any('is_full_credit' not in x or 'answer_type' not in x for x in qs): raise SystemExit('Missing answer classification records.')
-          if any(x['is_full_credit'] != (sorted(set(x['accepted_answers'])) == [0,1,2,3]) for x in qs): raise SystemExit('Invalid full-credit classification.')
-          ids=[x.get('id') for x in qs]
-          if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
+          import json
+          import os
+
+          data = json.load(open('data/bank.json', encoding='utf-8'))
+          questions = data.get('questions', [])
+          meta = data.get('meta', {})
+          event = os.environ['EVENT_NAME']
+
+          if not questions:
+              raise SystemExit('Question bank is empty.')
+          if any(not q.get('id') or not q.get('question') or len(q.get('choices', [])) != 4 for q in questions):
+              raise SystemExit('Malformed question records.')
+          if any(q.get('answer') not in (0, 1, 2, 3) for q in questions):
+              raise SystemExit('Invalid primary answers.')
+          if any(not q.get('accepted_answers') or any(a not in (0, 1, 2, 3) for a in q['accepted_answers']) for q in questions):
+              raise SystemExit('Invalid accepted answer sets.')
+          if any('explanation' not in q for q in questions):
+              raise SystemExit('Missing explanation records.')
+          if any('is_full_credit' not in q or 'answer_type' not in q for q in questions):
+              raise SystemExit('Missing answer classification records.')
+          if any(q['is_full_credit'] != (sorted(set(q['accepted_answers'])) == [0, 1, 2, 3]) for q in questions):
+              raise SystemExit('Invalid full-credit classification.')
+
+          ids = [q.get('id') for q in questions]
+          if len(ids) != len(set(ids)):
+              raise SystemExit('Duplicate question IDs.')
+
           if event == 'workflow_dispatch':
-              if any(not x.get('answer_verified') for x in qs): raise SystemExit('Found unverified answer records in official rebuild.')
-              if m.get('papers_ok') != 60: raise SystemExit(f"Expected 60 papers, got {m.get('papers_ok')}")
-              if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
+              if any(not q.get('answer_verified') for q in questions):
+                  raise SystemExit('Found unverified answer records in official rebuild.')
+              if meta.get('papers_ok') != 60:
+                  raise SystemExit(f"Expected 60 papers, got {meta.get('papers_ok')}")
+              if meta.get('papers_failed'):
+                  raise SystemExit(f"Paper failures: {meta['papers_failed']}")
           PY
-      - name: Commit verified bank only when changed
+
+      - name: Commit verified bank changes
         if: github.event_name != 'push'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/bank.json
           if git diff --cached --quiet; then
-            echo 'No question-bank changes detected; keeping current bank.'
+            echo 'No question-bank changes detected.'
           else
             git commit -m 'Sync verified Socialworkerdaily question bank'
             git push
           fi
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-      - name: Prepare site
+
+      - name: Prepare Pages site
         run: |
+          rm -rf _site
           mkdir -p _site/data
           cp site_index_v4.html _site/index.html
           cp data/bank.json _site/data/bank.json
-          printf '\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script>\n' >> _site/index.html
-          cat auth.js >> _site/index.html
+          cat >> _site/index.html <<'HTML'
+          <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+          <script>
+          HTML
+          cat cloud_sync.js >> _site/index.html
           cat site_enhancements.js >> _site/index.html
           cat review_order_fix.js >> _site/index.html
           cat review_render_fix.js >> _site/index.html
-          printf '\n</script>\n' >> _site/index.html
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('_site/index.html')
-          s=p.read_text(encoding='utf-8')
-          marker='<div class="hero"><h1>社工師國考｜110–115 歷屆真題備考</h1>'
-          box='''<div id="authBox" class="card" style="margin-top:10px"><button onclick="swGoogleLogin()">🔵 使用 Google 登入</button><div class="muted">不登入也可以完整刷題；登入後可跨裝置保存學習紀錄。</div></div>'''
-          if 'id="authBox"' not in s:
-              pos=s.find('</div>',s.find(marker))+6
-              s=s[:pos]+box+s[pos:]
-          p.write_text(s,encoding='utf-8')
-          PY
-          printf '\n<script>swInitAuth();</script>\n' >> _site/index.html
+          cat >> _site/index.html <<'HTML'
+          </script>
+          HTML
           touch _site/.nojekyll
-      - uses: actions/upload-pages-artifact@v3
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
   deploy:
+    runs-on: ubuntu-latest
+    needs: build
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
+
     steps:
-      - id: deployment
+      - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
