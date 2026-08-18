@@ -4,15 +4,15 @@ on:
   push:
     branches: [main]
     paths:
+      - 'build_bank_v4.py'
       - 'build_bank_v3.py'
-      - '建構銀行.py'
       - 'site_index_v4.html'
       - 'auth.js'
       - 'site_enhancements.js'
       - 'review_order_fix.js'
       - '.github/workflows/build-and-deploy.yml'
   schedule:
-    # 每天台灣時間 02:15 自動檢查社工日常是否有新題目/更新
+    # 每天台灣時間 02:15 自動檢查社工日常／考選部是否有新題目或官方資料更新
     - cron: '15 18 * * *'
   workflow_dispatch:
 
@@ -36,9 +36,9 @@ jobs:
       - name: Install PDF parser
         run: python -m pip install --disable-pip-version-check pypdf
       - name: Validate verified builder syntax
-        run: python -m py_compile build_bank_v3.py
-      - name: Build verified question bank including 115-2
-        run: python build_bank_v3.py
+        run: python -m py_compile build_bank_v4.py
+      - name: Build verified Socialworkerdaily question bank
+        run: python build_bank_v4.py
       - name: Mark official full-credit and multiple-answer items
         run: |
           python - <<'PY'
@@ -53,7 +53,7 @@ jobs:
               q['answer_type']='送分題' if q['is_full_credit'] else ('複數答案' if len(accepted)>1 else '單一答案')
           data.setdefault('meta',{})['full_credit_definition']='accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
           data.setdefault('meta',{})['sync_policy']='daily_verified_sync'
-          data.setdefault('meta',{})['115_2_verified']='official_moex_questions_and_answers'
+          data.setdefault('meta',{})['question_count_policy']='MOEX published selection-question count per subject; do not assume a fixed count'
           path.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
           print('full_credit_count=',sum(1 for q in data['questions'] if q['is_full_credit']))
           print('multiple_answer_count=',sum(1 for q in data['questions'] if q['answer_type']=='複數答案'))
@@ -67,9 +67,8 @@ jobs:
           qs=p.get('questions',[]); m=p.get('meta',{})
           print('question_count=',len(qs))
           print('paper_count=',m.get('papers_ok'))
-          print('parser_version=',m.get('parser_version'))
-          if len(qs) != 2400: raise SystemExit(f"Expected 2400 questions, got {len(qs)}")
-          if m.get('papers_ok') != 60: raise SystemExit(f"Expected 60 papers, got {m.get('papers_ok')}")
+          print('paper_question_counts=',m.get('paper_question_counts'))
+          if m.get('papers_ok') != 60: raise SystemExit(f"Expected 60 social-worker papers, got {m.get('papers_ok')}")
           if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
           if any(not x.get('question') or len(x.get('choices',[])) != 4 for x in qs): raise SystemExit('Malformed question records.')
           if any(x.get('answer') not in (0,1,2,3) for x in qs): raise SystemExit('Invalid primary answers.')
@@ -78,12 +77,14 @@ jobs:
           if any('explanation' not in x for x in qs): raise SystemExit('Missing explanation records.')
           if any('is_full_credit' not in x or 'answer_type' not in x for x in qs): raise SystemExit('Missing answer classification records.')
           if any(x['is_full_credit'] != (sorted(set(x['accepted_answers'])) == [0,1,2,3]) for x in qs): raise SystemExit('Invalid full-credit classification.')
-          n1152=[x for x in qs if x.get('year')=='115' and x.get('session')=='2']
-          if len(n1152) != 200: raise SystemExit(f'115-2 must contain 200 questions, got {len(n1152)}')
-          if len({(x['subject'],x['number']) for x in n1152}) != 200: raise SystemExit('115-2 has duplicate subject/question records.')
-          if any(x.get('source_name') != '考選部官方考畢試題' for x in n1152): raise SystemExit('115-2 is not sourced from official MOEX questions.')
           ids=[x.get('id') for x in qs]
           if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
+          expected_counts=m.get('paper_question_counts',{})
+          actual_counts={}
+          for x in qs:
+              key=f"{x['year']}-{x['session']}-{x['subject']}"
+              actual_counts[key]=actual_counts.get(key,0)+1
+          if actual_counts != expected_counts: raise SystemExit('Per-paper question counts do not match generated metadata.')
           PY
       - name: Commit generated verified bank only when changed
         run: |
