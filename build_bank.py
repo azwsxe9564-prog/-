@@ -6,7 +6,7 @@ YEARS={str(y) for y in range(110,116)}
 SUBJECTS={"社會工作","社會工作直接服務","社會政策與社會立法","人類行為與社會環境","社會工作研究方法"}
 INDEX_URL='https://raw.githubusercontent.com/pofeng/exams_tw/main/fse_all.json'
 ROOT=Path(__file__).parent
-DATA=ROOT/'data'; PDF=ROOT/'.pdf_cache_v3'
+DATA=ROOT/'data'; PDF=ROOT/'.pdf_cache_v4'
 DATA.mkdir(exist_ok=True); PDF.mkdir(exist_ok=True)
 
 CHOICE_MARKS=''
@@ -16,7 +16,7 @@ def get(url, dest):
     # different exam sessions can never overwrite/collide with another paper.
     if dest.exists() and dest.stat().st_size>1000:
         return
-    req=urllib.request.Request(url,headers={'User-Agent':'social-worker-exam-builder/3.0'})
+    req=urllib.request.Request(url,headers={'User-Agent':'social-worker-exam-builder/4.0'})
     with urllib.request.urlopen(req,timeout=180) as r, open(dest,'wb') as f:
         shutil.copyfileobj(r,f)
     if dest.stat().st_size<=1000:
@@ -38,6 +38,13 @@ def clean(s):
 
 def normalize_digits(s):
     return s.translate(str.maketrans('０１２３４５６７８９','0123456789'))
+
+def normalize_answer_text(s):
+    # MOEX answer PDFs may contain full-width characters, NBSPs or zero-width
+    # spaces depending on the PDF text layer. Normalize them before matching.
+    s=s.replace('\u00a0',' ').replace('\u200b','').replace('\ufeff','')
+    s=s.translate(str.maketrans('０１２３４５６７８９ＡＢＣＤ','0123456789ABCD'))
+    return s
 
 def parse_questions(text):
     text=normalize_digits(text)
@@ -77,29 +84,50 @@ def parse_questions(text):
     return result
 
 def parse_answers(text, expected_count):
-    # MOEX answer PDFs are laid out as a table. pdftotext -layout may put all
-    # question labels first and the answer letters later. Anchor on the last
-    # expected question label, then read only A-D letters before the next table.
-    t=text.translate(str.maketrans('ＡＢＣＤ','ABCD'))
-    stop=re.search(r'複選題數',t)
-    if stop:
-        t=t[:stop.start()]
-    # Use the last occurrence of the highest expected question label.
-    anchor=None
-    for pattern in [rf'第\s*{expected_count}\s*題', rf'\b{expected_count}\b']:
-        ms=list(re.finditer(pattern,t))
-        if ms: anchor=ms[-1]; break
-    if anchor:
-        tail=t[anchor.end():]
-        letters=re.findall(r'[ABCD]',tail)
-        if len(letters)>=expected_count:
-            return letters[:expected_count]
-    # Fallback: many MOEX PDFs expose a compact sequence after 標準答案.
-    tail=t[t.find('標準答案'):] if '標準答案' in t else t
-    letters=re.findall(r'[ABCD]',tail)
-    if len(letters)>=expected_count:
-        return letters[-expected_count:]
-    raise RuntimeError(f'could not parse {expected_count} official answers; found {len(letters)}')
+    """Parse official MOEX answers by question/answer pairs.
+
+    The official answer PDF presents entries such as '第1題 C', '第2題 B'.
+    Do not infer answers from arbitrary A-D letters in the PDF: that can mix
+    table columns or distractor text. We first extract explicit question/answer
+    pairs, validate that every question 1..N appears exactly once, then use a
+    compact '1-C' fallback for PDF text layers that flatten the table.
+    """
+    t=normalize_answer_text(text)
+
+    # Primary format: 第1題 C / 第2題 B / ...
+    pair_pattern=re.compile(r'第\s*(\d{1,3})\s*題\s*[:：]?\s*([ABCD])')
+    pairs=[]
+    seen=set()
+    for m in pair_pattern.finditer(t):
+        n=int(m.group(1)); a=m.group(2)
+        if 1<=n<=expected_count and n not in seen:
+            pairs.append((n,a)); seen.add(n)
+
+    # Some PDF text layers flatten the same table to compact entries such as
+    # 1-C 2-B ... while still preserving the official answer table.
+    if len(pairs)<expected_count:
+        compact_pattern=re.compile(r'(?<!\d)(\d{1,3})\s*[-–—]\s*([ABCD])(?![A-Z])')
+        compact=[]; cseen=set()
+        for m in compact_pattern.finditer(t):
+            n=int(m.group(1)); a=m.group(2)
+            if 1<=n<=expected_count and n not in cseen:
+                compact.append((n,a)); cseen.add(n)
+        if len(compact)>=expected_count:
+            pairs=compact
+
+    answer_map={n:a for n,a in pairs}
+    expected=set(range(1,expected_count+1))
+    missing=sorted(expected-set(answer_map))
+    extra=sorted(set(answer_map)-expected)
+    if missing or extra or len(answer_map)!=expected_count:
+        sample=', '.join(f'{n}-{answer_map[n]}' for n in sorted(answer_map)[:10])
+        raise RuntimeError(
+            f'official answer pairs incomplete: expected {expected_count}, '
+            f'found {len(answer_map)}, missing={missing[:10]}, extra={extra[:10]}, '
+            f'sample={sample}'
+        )
+
+    return [answer_map[n] for n in range(1,expected_count+1)]
 
 def main():
     index_path=PDF/'fse_all_index.json'
@@ -122,10 +150,20 @@ def main():
         apath=cached_pdf(r['測驗式試題答案網址'],'A')
         get(r['試題網址'],qpath)
         get(r['測驗式試題答案網址'],apath)
+
         qtext=pdf_text(qpath)
         qs=parse_questions(qtext)
         if not qs:
             raise RuntimeError(f'{r["試題檔案"]}: no multiple-choice questions parsed')
+
+        q_numbers=[q['number'] for q in qs]
+        expected_numbers=list(range(1,len(qs)+1))
+        if q_numbers != expected_numbers:
+            raise RuntimeError(
+                f'{r["試題檔案"]}: question numbering is not contiguous; '
+                f'found first values {q_numbers[:10]}... expected 1..{len(qs)}'
+            )
+
         atext=pdf_text(apath)
         ans=parse_answers(atext,len(qs))
         amap={c:i for i,c in enumerate('ABCD')}
@@ -144,7 +182,7 @@ def main():
                 'answer':amap[a],
                 'source':r['試題網址'],
                 'answer_source':r['測驗式試題答案網址'],
-                'corrected':r.get('備註')=='更正答案'
+                'corrected':('更正' in str(r.get('備註','')))
             })
         return r,items
 
@@ -170,11 +208,11 @@ def main():
         'papers_failed':len(failures),
         'items':len(all_items),
         'failures':failures,
-        'parser_version':'3.0-moeX-test-section-url-cache-answer-anchor'
+        'parser_version':'4.0-explicit-question-answer-pairs'
     }
     (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
     print(json.dumps(meta,ensure_ascii=False,indent=2))
-    # Never deploy a partial or empty bank as successful.
+    # Never deploy a partial, malformed or empty bank as successful.
     if failures or len(all_items)<1000:
         raise SystemExit(1)
 
