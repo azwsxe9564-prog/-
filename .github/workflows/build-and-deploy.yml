@@ -28,6 +28,23 @@ jobs:
         run: python -m py_compile build_bank_v3.py
       - name: Build verified Socialworkerdaily question bank
         run: python build_bank_v3.py
+      - name: Mark official full-credit and multiple-answer items
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path=Path('data/bank.json')
+          data=json.loads(path.read_text(encoding='utf-8'))
+          full=[0,1,2,3]
+          for q in data.get('questions',[]):
+              accepted=sorted(set(q.get('accepted_answers',[])))
+              q['is_full_credit']=(accepted==full)
+              q['answer_type']='送分題' if q['is_full_credit'] else ('複數答案' if len(accepted)>1 else '單一答案')
+          data.setdefault('meta',{})['full_credit_definition']='accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
+          path.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          print('full_credit_count=',sum(1 for q in data['questions'] if q['is_full_credit']))
+          print('multiple_answer_count=',sum(1 for q in data['questions'] if q['answer_type']=='複數答案'))
+          PY
       - name: Verify generated bank
         run: |
           test -s data/bank.json
@@ -46,6 +63,8 @@ jobs:
           if any(not x.get('accepted_answers') or any(a not in (0,1,2,3) for a in x['accepted_answers']) for x in qs): raise SystemExit('Invalid accepted answer sets.')
           if any(not x.get('answer_verified') for x in qs): raise SystemExit('Found unverified answer records.')
           if any('explanation' not in x for x in qs): raise SystemExit('Missing explanation records.')
+          if any('is_full_credit' not in x or 'answer_type' not in x for x in qs): raise SystemExit('Missing answer classification records.')
+          if any(x['is_full_credit'] != (sorted(set(x['accepted_answers'])) == [0,1,2,3]) for x in qs): raise SystemExit('Invalid full-credit classification.')
           ids=[x.get('id') for x in qs]
           if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
           PY
@@ -63,6 +82,9 @@ jobs:
           mkdir -p _site/data
           cp site_index_v4.html _site/index.html
           cp data/bank.json _site/data/bank.json
+          printf '\n<script>\n' >> _site/index.html
+          cat site_enhancements.js >> _site/index.html
+          printf '\n</script>\n' >> _site/index.html
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
