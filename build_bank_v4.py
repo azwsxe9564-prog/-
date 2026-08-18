@@ -39,18 +39,12 @@ class Extractor(HTMLParser):
   s=re.sub(r'[ \t]+',' ',s); s=re.sub(r'\n[ \t]+','\n',s); s=re.sub(r'\n{3,}','\n\n',s)
   return s.strip()
 
-def fetch(url, retries=5):
+def fetch(url,retries=5):
  last=None
  for attempt in range(1,retries+1):
   try:
-   req=urllib.request.Request(url,headers={
-    'User-Agent':'Mozilla/5.0 social-worker-exam-builder/10.0',
-    'Accept':'text/html,application/xhtml+xml,application/pdf,*/*',
-    'Accept-Encoding':'identity',
-    'Connection':'close',
-   })
-   with urllib.request.urlopen(req,timeout=90) as r:
-    data=r.read()
+   req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 social-worker-exam-builder/10.1','Accept':'text/html,application/xhtml+xml,application/pdf,*/*','Accept-Encoding':'identity','Connection':'close'})
+   with urllib.request.urlopen(req,timeout=90) as r:data=r.read()
    if not data: raise OSError('empty response')
    return data
   except Exception as e:
@@ -60,26 +54,19 @@ def fetch(url, retries=5):
 
 def html_text(raw):
  p=Extractor(); p.feed(raw.decode('utf-8',errors='ignore')); return p.text()
-
 def pdf_text(url):
  raw=fetch(url)
- try:
-  return '\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)
- except Exception as e:
-  # MOEX 偶爾在高並發時回傳截斷 PDF；重新下載一次後再交給 pypdf。
-  raw=fetch(url,retries=3)
-  return '\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)
-
+ try:return '\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)
+ except Exception:
+  raw=fetch(url,retries=3); return '\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)
 def clean(s):return re.sub(r'[ \t\r\n]+',' ',s).strip()
 def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
 
 def parse_questions(text, expected_count=None, official_pdf=False):
  if official_pdf:
-  text=text.replace('\r','\n')
-  text=text.replace('','A ').replace('','B ').replace('','C ').replace('','D ')
+  text=text.replace('\r','\n').replace('','A ').replace('','B ').replace('','C ').replace('','D ')
   starts=list(re.finditer(r'(?m)^\s*(\d{1,3})\s*$',text))
- else:
-  starts=list(re.finditer(r'(?m)^\s*(?:#{1,6}\s*)?(\d{1,3})\s*[\.、．)）]\s*',text))
+ else: starts=list(re.finditer(r'(?m)^\s*(?:#{1,6}\s*)?(\d{1,3})\s*[\.、．)）]\s*',text))
  out=[]
  for i,m in enumerate(starts):
   n=int(m.group(1))
@@ -90,30 +77,35 @@ def parse_questions(text, expected_count=None, official_pdf=False):
   chosen=None
   for k in range(len(marks)-3):
    cand=marks[k:k+4]
-   if [norm(x.group(1)) for x in cand]==list('ABCD'):
-    chosen=cand; break
+   if [norm(x.group(1)) for x in cand]==list('ABCD'): chosen=cand; break
   if not chosen:continue
-  marks=chosen
-  q=clean(block[:marks[0].start()]); choices=[]
+  marks=chosen; q=clean(block[:marks[0].start()]); choices=[]
   for j,mark in enumerate(marks):
    e=marks[j+1].start() if j<3 else len(block); c=block[mark.end():e]
    if j==3:c=re.split(r'\n\s*(?:解析|看更多|備註|試題代號)\s*[:：]?',c,maxsplit=1)[0]
    choices.append(clean(c))
   if not q or any(not c for c in choices):continue
-  am=re.search(r'解析\s*[:：]\s*[（(]?\s*([ABCDＡＢＣＤ])\s*[)）]?\s*',block,re.I)
-  exp=''
+  am=re.search(r'解析\s*[:：]\s*[（(]?\s*([ABCDＡＢＣＤ])\s*[)）]?\s*',block,re.I); exp=''
   if am:exp=clean(re.split(r'\n\s*看更多\s*[:：]?',block[am.end():],maxsplit=1)[0])
   out.append({'number':n,'question':q,'choices':choices,'explanation':exp})
  unique={q['number']:q for q in out}; return [unique[n] for n in sorted(unique)]
 
 def official_block(text,code):
- hits=list(re.finditer(r'(?m)^\s*'+re.escape(code)+r'\s*$',text))
+ # PDF 文字層可能是「代號：1103」、獨立一行 1103，或其他排版；不能只接受整行數字。
+ text=text.replace('\r','\n')
+ code_re=re.escape(str(code))
+ hits=list(re.finditer(r'(?<!\d)'+code_re+r'(?!\d)',text))
  if not hits:raise ValueError(f'找不到考選部科目代碼 {code}')
- start=hits[0].start(); nxt=re.search(r'(?m)^\s*\d{4}\s*$',text[hits[0].end():]); end=hits[0].end()+nxt.start() if nxt else len(text)
+ # 優先找最接近「代號」或科目名稱的命中，避免誤抓答案數字。
+ ranked=sorted(hits,key=lambda h:(0 if re.search(r'代號\s*[：:]?\s*$',text[max(0,h.start()-20):h.start()]) else 1,h.start()))
+ hit=ranked[0]; start=hit.start()
+ prev=list(re.finditer(r'(?m)^\s*(?:代號\s*[：:]?\s*)?\d{4,6}\s*$',text[:start]))
+ if prev:start=prev[-1].start()
+ nxt=re.search(r'(?m)^\s*(?:代號\s*[：:]?\s*)?\d{4,6}\s*$',text[hit.end():])
+ end=hit.end()+nxt.start() if nxt else len(text)
  return text[start:end]
 
-def moex_url(year,session,subject_code,file_type):
- return f'{MOEX}?c={MOEX_C}&code={exam_code(year,session)}&q=1&s={subject_code}&t={file_type}'
+def moex_url(year,session,subject_code,file_type):return f'{MOEX}?c={MOEX_C}&code={exam_code(year,session)}&q=1&s={subject_code}&t={file_type}'
 
 def parse_official_answers(text,code):
  block=official_block(text,code)
@@ -124,14 +116,12 @@ def parse_official_answers(text,code):
  letters=re.findall(r'(?<![A-Z])[ABCD#](?![A-Z])',after)
  if expected is None: expected=len(letters)
  if expected<=0 or len(letters)<expected:raise ValueError(f'考選部 {code} 公布答案不足：應有{expected}題，實得{len(letters)}')
- letters=letters[:expected]
- accepted={i:(["ABCD".index(a)] if a in 'ABCD' else [0,1,2,3]) for i,a in enumerate(letters,1)}
- notes=block[block.find('備註'):] if '備註' in block else ''
- notes=notes.replace('\n','')
+ letters=letters[:expected]; accepted={i:(["ABCD".index(a)] if a in 'ABCD' else [0,1,2,3]) for i,a in enumerate(letters,1)}
+ notes=block[block.find('備註'):] if '備註' in block else ''; notes=notes.replace('\n','')
  for x in re.finditer(r'第\s*(\d+)\s*題[^。；;]*?一律給分',notes):accepted[int(x.group(1))]=[0,1,2,3]
  for x in re.finditer(r'第\s*(\d+)\s*題[^。；;]*?([ABCDＡＢＣＤ]+(?:或[ABCDＡＢＣＤ]+)+)[^。；;]*?(?:均給分|者均給分)',notes):
   vals=[]
-  for token in re.split('或',norm(x.group(2))): vals += ['ABCD'.index(ch) for ch in token if ch in 'ABCD']
+  for token in re.split('或',norm(x.group(2))):vals += ['ABCD'.index(ch) for ch in token if ch in 'ABCD']
   if vals:accepted[int(x.group(1))]=sorted(set(vals))
  return expected,accepted
 
@@ -161,7 +151,7 @@ def build_one(y,subject,slug,code):
  return results,failures
 
 def main():
- jobs=[(y,s,slug,code) for y,s,(slug,code) in [(y,s,v) for y in YEARS for s,v in SUBJECTS.items()]]
+ jobs=[(y,s,slug,code) for y in YEARS for s,(slug,code) in SUBJECTS.items()]
  all_items=[];failures=[]
  with ThreadPoolExecutor(max_workers=3) as ex:
   fs={ex.submit(build_one,*j):j for j in jobs}
@@ -171,13 +161,11 @@ def main():
     items,errs=f.result();all_items.extend(items);failures.extend(errs);print('OK' if items else 'FAIL',y,s,len(items))
    except Exception as e:failures.append({'year':y,'subject':s,'stage':'worker','error':str(e)})
  unique={x['id']:x for x in all_items};all_items=sorted(unique.values(),key=lambda x:(x['year'],x['session'],x['subject'],x['number']))
- papers=sorted({(x['year'],x['session'],x['subject']) for x in all_items})
- counts={}
+ papers=sorted({(x['year'],x['session'],x['subject']) for x in all_items}); counts={}
  for q in all_items:
-  k=f"{q['year']}-{q['session']}-{q['subject']}"; counts[k]=counts.get(k,0)+1
- meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.0 + MOEX-official-count-and-pdf-parser-with-retry'}
+  k=f"{q['year']}-{q['session']}-{q['subject']}";counts[k]=counts.get(k,0)+1
+ meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.1 + MOEX-official-count-and-pdf-parser-with-robust-code-detection'}
  (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
  print(json.dumps(meta,ensure_ascii=False,indent=2))
  if len(papers)!=60 or failures:raise SystemExit(1)
-
 if __name__=='__main__':main()
