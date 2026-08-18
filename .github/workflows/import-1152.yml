@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'import_1152_official.py'
+      - 'yamol_fallback.py'
       - '.github/workflows/import-1152.yml'
   workflow_dispatch:
 
@@ -28,8 +29,8 @@ jobs:
       - name: Install PDF parser
         run: python -m pip install --disable-pip-version-check pypdf
       - name: Validate importer
-        run: python -m py_compile build_bank_v4.py import_1152_official.py
-      - name: Import 115-2 from MOEX official PDFs
+        run: python -m py_compile build_bank_v4.py import_1152_official.py yamol_fallback.py
+      - name: Import 115-2 from MOEX official PDFs with Yamol fallback
         run: python import_1152_official.py
       - name: Verify 115-2 is complete and official-answer verified
         run: |
@@ -61,7 +62,7 @@ jobs:
           if len(qs) != expected_total:
               raise SystemExit(f'115-2 total question count mismatch: expected {expected_total}, got {len(qs)}')
           print('115-2 verified questions =',len(qs))
-          for x in report: print(x['subject'], '=', x['question_count'])
+          for x in report: print(x['subject'], '=', x['question_count'], '|', x.get('question_source'))
           PY
       - name: Commit verified 115-2 bank
         run: |
@@ -71,6 +72,6 @@ jobs:
           if git diff --cached --quiet; then
             echo 'No 115-2 bank changes detected.'
           else
-            git commit -m 'Add verified 115-2 official social work exam'
+            git commit -m 'Add verified 115-2 official-answer question bank'
             git push
           fi
