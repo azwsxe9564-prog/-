@@ -19,48 +19,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install PDF tools
-        run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Validate builder syntax
-        run: python -m py_compile build_bank.py
-      - name: Build official question bank
-        run: python build_bank.py
+        run: python -m py_compile build_bank_v2.py
+      - name: Build Socialworkerdaily question bank
+        run: python build_bank_v2.py
       - name: Verify generated bank
         run: |
           test -s data/bank.json
           python - <<'PY'
           import json
-          from collections import Counter
           p=json.load(open('data/bank.json',encoding='utf-8'))
           qs=p.get('questions',[])
-          n=len(qs)
-          print('question_count=',n)
-          if n < 1000:
-              raise SystemExit('Generated bank is unexpectedly small; refusing deployment.')
-          if p.get('meta',{}).get('failures'):
-              raise SystemExit('One or more papers failed to parse; refusing deployment.')
-          bad=[x for x in qs if not isinstance(x.get('answer'),int) or x.get('answer') not in (0,1,2,3)]
-          if bad:
-              raise SystemExit(f'Invalid answer encoding in {len(bad)} questions; refusing deployment.')
-          missing=[x for x in qs if not x.get('question') or len(x.get('choices',[]))!=4]
-          if missing:
-              raise SystemExit(f'Malformed question records: {len(missing)}; refusing deployment.')
+          m=p.get('meta',{})
+          print('question_count=',len(qs))
+          print('paper_count=',m.get('papers_ok'))
+          print('parser_version=',m.get('parser_version'))
+          if len(qs) < 1000: raise SystemExit('Question bank is too small.')
+          if m.get('papers_ok') != 55: raise SystemExit(f"Expected 55 papers, got {m.get('papers_ok')}")
+          if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
+          if any(not x.get('question') or len(x.get('choices',[])) != 4 for x in qs): raise SystemExit('Malformed question records.')
+          if any(x.get('answer') not in (0,1,2,3) for x in qs): raise SystemExit('Invalid answer records.')
+          if any('explanation' not in x for x in qs): raise SystemExit('Missing explanation records.')
           ids=[x.get('id') for x in qs]
-          if len(ids)!=len(set(ids)):
-              raise SystemExit('Duplicate question IDs detected; refusing deployment.')
-          papers=Counter((x.get('year'),x.get('exam_code'),x.get('subject')) for x in qs)
-          print('paper_count=',len(papers))
-          print('parser_version=',p.get('meta',{}).get('parser_version'))
+          if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
           PY
       - name: Commit generated bank to repository
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/bank.json
-          git diff --cached --quiet || git commit -m 'Build official question bank'
+          git diff --cached --quiet || git commit -m 'Build Socialworkerdaily question bank'
           git push
       - name: Configure Pages
         uses: actions/configure-pages@v5
