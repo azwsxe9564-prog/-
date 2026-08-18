@@ -2,11 +2,13 @@ name: Build and deploy study site
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'data/bank.json'
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * 1'
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 concurrency:
@@ -24,11 +26,19 @@ jobs:
           python-version: '3.12'
       - name: Build official question bank
         run: python build_bank.py
+      - name: Commit generated bank to repository
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/bank.json
+          git diff --cached --quiet || git commit -m 'Build official question bank'
+          git push
       - name: Prepare site
         run: |
           mkdir -p _site/data
           cp index.html _site/index.html
           cp data/bank.json _site/data/bank.json
+          touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
