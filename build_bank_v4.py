@@ -9,6 +9,7 @@ from pypdf import PdfReader
 
 BASE='https://socialworkerdaily.com/'
 MOEX='https://wwwq.moex.gov.tw/exam/wHandExamQandA_File.ashx'
+MOEX_C='103'
 YEARS=[str(y) for y in range(110,116)]
 SUBJECTS={
  '社會工作':('socialwork','1103'),
@@ -38,7 +39,7 @@ class Extractor(HTMLParser):
   return s.strip()
 
 def fetch(url):
- req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 social-worker-exam-builder/8.0','Accept':'text/html,application/xhtml+xml,application/pdf'})
+ req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 social-worker-exam-builder/9.0','Accept':'text/html,application/xhtml+xml,application/pdf'})
  with urllib.request.urlopen(req,timeout=60) as r:return r.read()
 
 def html_text(raw):
@@ -50,20 +51,34 @@ def pdf_text(url):
 def clean(s):return re.sub(r'[ \t\r\n]+',' ',s).strip()
 def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
 
-def parse_questions(text, expected_count=None):
- starts=list(re.finditer(r'(?m)^\s*(?:#{1,6}\s*)?(\d{1,3})\s*[\.、．)）]\s*',text)); out=[]
+def parse_questions(text, expected_count=None, official_pdf=False):
+ # 社工日常 HTML 通常有「1.」「1、」等題號；考選部 PDF 常把題號單獨放在一行。
+ if official_pdf:
+  text=text.replace('\r','\n')
+  # 考選部 PDF 的選項標記常是 ，同時接受 A-D。
+  text=text.replace('','A ').replace('','B ').replace('','C ').replace('','D ')
+  starts=list(re.finditer(r'(?m)^\s*(\d{1,3})\s*$',text))
+ else:
+  starts=list(re.finditer(r'(?m)^\s*(?:#{1,6}\s*)?(\d{1,3})\s*[\.、．)）]\s*',text))
+ out=[]
  for i,m in enumerate(starts):
   n=int(m.group(1))
   if n<1 or (expected_count and n>expected_count):continue
   end=starts[i+1].start() if i+1<len(starts) else len(text); block=text[m.end():end]
-  marks=list(re.finditer(r'(?m)^\s*[（(]?\s*([ABCDＡＢＣＤ])\s*[)）.．、:：]\s*',block))
+  marks=list(re.finditer(r'(?m)^\s*[（(]?\s*([ABCDＡＢＣＤ])\s*[)）.．、:：]?\s+',block))
   if len(marks)<4:continue
-  marks=marks[:4]
-  if [norm(x.group(1)) for x in marks]!=list('ABCD'):continue
+  # 只取第一組完整 A/B/C/D，避免解析說明文字裡的字母。
+  chosen=None
+  for k in range(len(marks)-3):
+   cand=marks[k:k+4]
+   if [norm(x.group(1)) for x in cand]==list('ABCD'):
+    chosen=cand; break
+  if not chosen:continue
+  marks=chosen
   q=clean(block[:marks[0].start()]); choices=[]
   for j,mark in enumerate(marks):
    e=marks[j+1].start() if j<3 else len(block); c=block[mark.end():e]
-   if j==3:c=re.split(r'\n\s*(?:解析|看更多)\s*[:：]?',c,maxsplit=1)[0]
+   if j==3:c=re.split(r'\n\s*(?:解析|看更多|備註|試題代號)\s*[:：]?',c,maxsplit=1)[0]
    choices.append(clean(c))
   if not q or any(not c for c in choices):continue
   am=re.search(r'解析\s*[:：]\s*[（(]?\s*([ABCDＡＢＣＤ])\s*[)）]?\s*',block,re.I)
@@ -78,14 +93,19 @@ def official_block(text,code):
  start=hits[0].start(); nxt=re.search(r'(?m)^\s*\d{4}\s*$',text[hits[0].end():]); end=hits[0].end()+nxt.start() if nxt else len(text)
  return text[start:end]
 
+def moex_url(year,session,subject_code,file_type):
+ return f'{MOEX}?c={MOEX_C}&code={exam_code(year,session)}&q=1&s={subject_code}&t={file_type}'
+
 def parse_official_answers(text,code):
  block=official_block(text,code)
  m=re.search(r'單選題數\s*[:：]?\s*(\d+)\s*題',block)
+ if not m:
+  m=re.search(r'共\s*(\d+)\s*題',block)
  expected=int(m.group(1)) if m else None
  after=block.split('答案',1)[1] if '答案' in block else ''
- letters=re.findall(r'[ABCD#]',after)
- if expected is None:
-  expected=len(letters)
+ # 標準答案表可能同時含「題號答案」與備註，先取題號後的答案欄。
+ letters=re.findall(r'(?<![A-Z])[ABCD#](?![A-Z])',after)
+ if expected is None: expected=len(letters)
  if expected<=0 or len(letters)<expected:raise ValueError(f'考選部 {code} 公布答案不足：應有{expected}題，實得{len(letters)}')
  letters=letters[:expected]
  accepted={i:(["ABCD".index(a)] if a in 'ABCD' else [0,1,2,3]) for i,a in enumerate(letters,1)}
@@ -94,8 +114,7 @@ def parse_official_answers(text,code):
  for x in re.finditer(r'第\s*(\d+)\s*題[^。；;]*?一律給分',notes):accepted[int(x.group(1))]=[0,1,2,3]
  for x in re.finditer(r'第\s*(\d+)\s*題[^。；;]*?([ABCDＡＢＣＤ]+(?:或[ABCDＡＢＣＤ]+)+)[^。；;]*?(?:均給分|者均給分)',notes):
   vals=[]
-  for token in re.split('或',norm(x.group(2))):
-   vals += ['ABCD'.index(ch) for ch in token if ch in 'ABCD']
+  for token in re.split('或',norm(x.group(2))): vals += ['ABCD'.index(ch) for ch in token if ch in 'ABCD']
   if vals:accepted[int(x.group(1))]=sorted(set(vals))
  return expected,accepted
 
@@ -105,12 +124,12 @@ def social_url(y,s,slug):return f'{BASE}{y}-{s}-{slug}/'
 def build_one(y,subject,slug,code):
  results=[]; failures=[]
  for session in ('1','2'):
-  answer_url=f'{MOEX}?code={exam_code(y,session)}&t=A'
+  answer_url=moex_url(y,session,code,'S')
   try:expected,accepted=parse_official_answers(pdf_text(answer_url),code)
-  except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','error':str(e)});continue
+  except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
   if y=='115' and session=='2':
-   source_url=f'{MOEX}?code={exam_code(y,session)}&t=Q'; source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
-   try:qs=parse_questions(pdf_text(source_url),expected)
+   source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
+   try:qs=parse_questions(pdf_text(source_url),expected,official_pdf=True)
    except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-question','url':source_url,'error':str(e)});continue
   else:
    source_url=social_url(y,session,slug); source_name='社工日常 socialworkerdaily'; explanation_source='社工日常解析'; default_exp=''
@@ -125,7 +144,8 @@ def build_one(y,subject,slug,code):
  return results,failures
 
 def main():
- jobs=[(y,s,slug,code) for y in YEARS for s,(slug,code) in SUBJECTS.items()]; all_items=[];failures=[]
+ jobs=[(y,s,slug,code) for y,s,(slug,code) in [(y,s,v) for y in YEARS for s,v in SUBJECTS.items()]]
+ all_items=[];failures=[]
  with ThreadPoolExecutor(max_workers=8) as ex:
   fs={ex.submit(build_one,*j):j for j in jobs}
   for f in as_completed(fs):
@@ -136,8 +156,9 @@ def main():
  unique={x['id']:x for x in all_items};all_items=sorted(unique.values(),key=lambda x:(x['year'],x['session'],x['subject'],x['number']))
  papers=sorted({(x['year'],x['session'],x['subject']) for x in all_items})
  counts={}
- for q in all_items:counts[f"{q['year']}-{q['session']}-{q['subject']}"]=counts.get(f"{q['year']}-{q['session']}-{q['subject']}",0)+1
- meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-8.0 + MOEX-question-count-authority'}
+ for q in all_items:
+  k=f"{q['year']}-{q['session']}-{q['subject']}"; counts[k]=counts.get(k,0)+1
+ meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-9.0 + MOEX-official-count-and-pdf-parser'}
  (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
  print(json.dumps(meta,ensure_ascii=False,indent=2))
  if len(papers)!=60 or failures:raise SystemExit(1)
