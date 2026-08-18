@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: import-1152
@@ -39,24 +41,36 @@ jobs:
           expected=['人類行為與社會環境','社會工作','社會工作直接服務','社會工作研究方法','社會政策與社會立法']
           if subjects != expected:
               raise SystemExit(f'115-2 subjects mismatch: {subjects}')
+          report=p.get('meta',{}).get('official_115_2_report',[])
+          if len(report)!=5:
+              raise SystemExit(f'115-2 report incomplete: {len(report)}')
           for s in expected:
               rows=[q for q in qs if q.get('subject')==s]
-              report=next(x for x in p['meta']['official_115_2_report'] if x['subject']==s)
-              if len(rows) != report['question_count']:
-                  raise SystemExit(f'{s}: expected {report["question_count"]}, got {len(rows)}')
+              r=next(x for x in report if x['subject']==s)
+              if len(rows) != r['question_count']:
+                  raise SystemExit(f'{s}: expected {r["question_count"]}, got {len(rows)}')
               if any(not q.get('answer_verified') for q in rows):
                   raise SystemExit(f'{s}: found unverified answers')
               if any(len(q.get('choices',[])) != 4 for q in rows):
                   raise SystemExit(f'{s}: malformed choices')
-          if len(qs) != sum(x['question_count'] for x in p['meta']['official_115_2_report']):
-              raise SystemExit('115-2 total question count mismatch')
+              if any(q.get('answer') not in (0,1,2,3) for q in rows):
+                  raise SystemExit(f'{s}: invalid primary answer')
+              if any(not q.get('accepted_answers') for q in rows):
+                  raise SystemExit(f'{s}: missing accepted answers')
+          expected_total=sum(x['question_count'] for x in report)
+          if len(qs) != expected_total:
+              raise SystemExit(f'115-2 total question count mismatch: expected {expected_total}, got {len(qs)}')
           print('115-2 verified questions =',len(qs))
-          print('115-2 report =',p['meta']['official_115_2_report'])
+          for x in report: print(x['subject'], '=', x['question_count'])
           PY
       - name: Commit verified 115-2 bank
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/bank.json
-          git commit -m 'Add verified 115-2 official social work exam' || echo 'No changes to commit.'
-          git push || true
+          if git diff --cached --quiet; then
+            echo 'No 115-2 bank changes detected.'
+          else
+            git commit -m 'Add verified 115-2 official social work exam'
+            git push
+          fi
