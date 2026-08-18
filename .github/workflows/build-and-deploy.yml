@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Validate builder syntax
+        run: python -m py_compile build_bank.py
       - name: Build official question bank
         run: python build_bank.py
       - name: Verify generated bank
@@ -31,13 +33,27 @@ jobs:
           test -s data/bank.json
           python - <<'PY'
           import json
+          from collections import Counter
           p=json.load(open('data/bank.json',encoding='utf-8'))
-          n=len(p.get('questions',[]))
+          qs=p.get('questions',[])
+          n=len(qs)
           print('question_count=',n)
           if n < 1000:
               raise SystemExit('Generated bank is unexpectedly small; refusing deployment.')
           if p.get('meta',{}).get('failures'):
               raise SystemExit('One or more papers failed to parse; refusing deployment.')
+          bad=[x for x in qs if not isinstance(x.get('answer'),int) or x.get('answer') not in (0,1,2,3)]
+          if bad:
+              raise SystemExit(f'Invalid answer encoding in {len(bad)} questions; refusing deployment.')
+          missing=[x for x in qs if not x.get('question') or len(x.get('choices',[]))!=4]
+          if missing:
+              raise SystemExit(f'Malformed question records: {len(missing)}; refusing deployment.')
+          ids=[x.get('id') for x in qs]
+          if len(ids)!=len(set(ids)):
+              raise SystemExit('Duplicate question IDs detected; refusing deployment.')
+          papers=Counter((x.get('year'),x.get('exam_code'),x.get('subject')) for x in qs)
+          print('paper_count=',len(papers))
+          print('parser_version=',p.get('meta',{}).get('parser_version'))
           PY
       - name: Commit generated bank to repository
         run: |
