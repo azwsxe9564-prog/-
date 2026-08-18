@@ -27,4 +27,5 @@
   const originalSave=window.save;
   if(originalSave){window.save=function(k,v){originalSave(k,v);if(window.swCloud&&window.swCloud.ready)window.swCloud.schedulePush();};}
   window.addEventListener('sw-local-changed',()=>{if(window.swCloud&&window.swCloud.ready)window.swCloud.schedulePush();});
+  const s=document.createElement('script');s.src='study_enhancements.js?v=20260818-2';s.onload=()=>{};document.head.appendChild(s);
 })();
