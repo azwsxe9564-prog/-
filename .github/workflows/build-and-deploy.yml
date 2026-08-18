@@ -82,9 +82,22 @@ jobs:
           mkdir -p _site/data
           cp site_index_v4.html _site/index.html
           cp data/bank.json _site/data/bank.json
-          printf '\n<script>\n' >> _site/index.html
+          printf '\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script>\n' >> _site/index.html
+          cat auth.js >> _site/index.html
           cat site_enhancements.js >> _site/index.html
           printf '\n</script>\n' >> _site/index.html
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('_site/index.html')
+          s=p.read_text(encoding='utf-8')
+          marker='<div class="hero"><h1>社工師國考｜110–115 歷屆真題備考</h1>'
+          box='''<div id="authBox" class="card" style="margin-top:10px"><button onclick="swGoogleLogin()">🔵 使用 Google 登入</button><div class="muted">不登入也可以完整刷題；登入後可跨裝置保存學習紀錄。</div></div>'''
+          if 'id="authBox"' not in s:
+              pos=s.find('</div>',s.find(marker))+6
+              s=s[:pos]+box+s[pos:]
+          p.write_text(s,encoding='utf-8')
+          PY
+          printf '\n<script>swInitAuth();</script>\n' >> _site/index.html
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
