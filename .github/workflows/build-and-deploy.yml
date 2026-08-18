@@ -6,7 +6,7 @@ on:
       - 'data/bank.json'
   workflow_dispatch:
   schedule:
-    - cron: '17 3 * * 1'
+    - cron: '17 3 * * *'
 permissions:
   contents: write
   pages: write
@@ -22,10 +22,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Validate builder syntax
-        run: python -m py_compile build_bank_v2.py
-      - name: Build Socialworkerdaily question bank
-        run: python build_bank_v2.py
+      - name: Install PDF parser
+        run: python -m pip install --disable-pip-version-check pypdf
+      - name: Validate verified builder syntax
+        run: python -m py_compile build_bank_v3.py
+      - name: Build verified Socialworkerdaily question bank
+        run: python build_bank_v3.py
       - name: Verify generated bank
         run: |
           test -s data/bank.json
@@ -33,29 +35,33 @@ jobs:
           import json
           p=json.load(open('data/bank.json',encoding='utf-8'))
           qs=p.get('questions',[]); m=p.get('meta',{})
-          print('question_count=',len(qs)); print('paper_count=',m.get('papers_ok')); print('parser_version=',m.get('parser_version'))
-          if len(qs) < 1000: raise SystemExit('Question bank is too small.')
+          print('question_count=',len(qs))
+          print('paper_count=',m.get('papers_ok'))
+          print('parser_version=',m.get('parser_version'))
+          if len(qs) != 2200: raise SystemExit(f"Expected 2200 questions, got {len(qs)}")
           if m.get('papers_ok') != 55: raise SystemExit(f"Expected 55 papers, got {m.get('papers_ok')}")
           if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
           if any(not x.get('question') or len(x.get('choices',[])) != 4 for x in qs): raise SystemExit('Malformed question records.')
-          if any(x.get('answer') not in (0,1,2,3) for x in qs): raise SystemExit('Invalid answer records.')
+          if any(x.get('answer') not in (0,1,2,3) for x in qs): raise SystemExit('Invalid primary answers.')
+          if any(not x.get('accepted_answers') or any(a not in (0,1,2,3) for a in x['accepted_answers']) for x in qs): raise SystemExit('Invalid accepted answer sets.')
+          if any(not x.get('answer_verified') for x in qs): raise SystemExit('Found unverified answer records.')
           if any('explanation' not in x for x in qs): raise SystemExit('Missing explanation records.')
           ids=[x.get('id') for x in qs]
           if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
           PY
-      - name: Commit generated bank to repository
+      - name: Commit generated verified bank
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/bank.json
-          git diff --cached --quiet || git commit -m 'Build Socialworkerdaily question bank'
+          git diff --cached --quiet || git commit -m 'Build verified Socialworkerdaily question bank'
           git push
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Prepare site
         run: |
           mkdir -p _site/data
-          cp index_v2.html _site/index.html
+          cp site_index.html _site/index.html
           cp data/bank.json _site/data/bank.json
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
