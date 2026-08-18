@@ -1,6 +1,7 @@
 import io
 import json
 import re
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
@@ -38,24 +39,43 @@ class Extractor(HTMLParser):
   s=re.sub(r'[ \t]+',' ',s); s=re.sub(r'\n[ \t]+','\n',s); s=re.sub(r'\n{3,}','\n\n',s)
   return s.strip()
 
-def fetch(url):
- req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 social-worker-exam-builder/9.0','Accept':'text/html,application/xhtml+xml,application/pdf'})
- with urllib.request.urlopen(req,timeout=60) as r:return r.read()
+def fetch(url, retries=5):
+ last=None
+ for attempt in range(1,retries+1):
+  try:
+   req=urllib.request.Request(url,headers={
+    'User-Agent':'Mozilla/5.0 social-worker-exam-builder/10.0',
+    'Accept':'text/html,application/xhtml+xml,application/pdf,*/*',
+    'Accept-Encoding':'identity',
+    'Connection':'close',
+   })
+   with urllib.request.urlopen(req,timeout=90) as r:
+    data=r.read()
+   if not data: raise OSError('empty response')
+   return data
+  except Exception as e:
+   last=e
+   if attempt<retries: time.sleep(min(2**(attempt-1),8))
+ raise last
 
 def html_text(raw):
  p=Extractor(); p.feed(raw.decode('utf-8',errors='ignore')); return p.text()
 
 def pdf_text(url):
- r=PdfReader(io.BytesIO(fetch(url))); return '\n'.join((p.extract_text() or '') for p in r.pages)
+ raw=fetch(url)
+ try:
+  return '\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)
+ except Exception as e:
+  # MOEX 偶爾在高並發時回傳截斷 PDF；重新下載一次後再交給 pypdf。
+  raw=fetch(url,retries=3)
+  return '\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)
 
 def clean(s):return re.sub(r'[ \t\r\n]+',' ',s).strip()
 def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
 
 def parse_questions(text, expected_count=None, official_pdf=False):
- # 社工日常 HTML 通常有「1.」「1、」等題號；考選部 PDF 常把題號單獨放在一行。
  if official_pdf:
   text=text.replace('\r','\n')
-  # 考選部 PDF 的選項標記常是 ，同時接受 A-D。
   text=text.replace('','A ').replace('','B ').replace('','C ').replace('','D ')
   starts=list(re.finditer(r'(?m)^\s*(\d{1,3})\s*$',text))
  else:
@@ -67,7 +87,6 @@ def parse_questions(text, expected_count=None, official_pdf=False):
   end=starts[i+1].start() if i+1<len(starts) else len(text); block=text[m.end():end]
   marks=list(re.finditer(r'(?m)^\s*[（(]?\s*([ABCDＡＢＣＤ])\s*[)）.．、:：]?\s+',block))
   if len(marks)<4:continue
-  # 只取第一組完整 A/B/C/D，避免解析說明文字裡的字母。
   chosen=None
   for k in range(len(marks)-3):
    cand=marks[k:k+4]
@@ -99,11 +118,9 @@ def moex_url(year,session,subject_code,file_type):
 def parse_official_answers(text,code):
  block=official_block(text,code)
  m=re.search(r'單選題數\s*[:：]?\s*(\d+)\s*題',block)
- if not m:
-  m=re.search(r'共\s*(\d+)\s*題',block)
+ if not m:m=re.search(r'共\s*(\d+)\s*題',block)
  expected=int(m.group(1)) if m else None
  after=block.split('答案',1)[1] if '答案' in block else ''
- # 標準答案表可能同時含「題號答案」與備註，先取題號後的答案欄。
  letters=re.findall(r'(?<![A-Z])[ABCD#](?![A-Z])',after)
  if expected is None: expected=len(letters)
  if expected<=0 or len(letters)<expected:raise ValueError(f'考選部 {code} 公布答案不足：應有{expected}題，實得{len(letters)}')
@@ -146,7 +163,7 @@ def build_one(y,subject,slug,code):
 def main():
  jobs=[(y,s,slug,code) for y,s,(slug,code) in [(y,s,v) for y in YEARS for s,v in SUBJECTS.items()]]
  all_items=[];failures=[]
- with ThreadPoolExecutor(max_workers=8) as ex:
+ with ThreadPoolExecutor(max_workers=3) as ex:
   fs={ex.submit(build_one,*j):j for j in jobs}
   for f in as_completed(fs):
    y,s,_,_=fs[f]
@@ -158,7 +175,7 @@ def main():
  counts={}
  for q in all_items:
   k=f"{q['year']}-{q['session']}-{q['subject']}"; counts[k]=counts.get(k,0)+1
- meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-9.0 + MOEX-official-count-and-pdf-parser'}
+ meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.0 + MOEX-official-count-and-pdf-parser-with-retry'}
  (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
  print(json.dumps(meta,ensure_ascii=False,indent=2))
  if len(papers)!=60 or failures:raise SystemExit(1)
