@@ -9,6 +9,7 @@ on:
       - 'site_enhancements.js'
       - 'review_order_fix.js'
       - 'review_render_fix.js'
+      - 'data/bank.json'
       - '.github/workflows/build-and-deploy.yml'
   schedule:
     - cron: '15 18 */5 * *'
@@ -37,7 +38,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check pypdf
       - name: Validate builders
         if: github.event_name != 'push'
-        run: python -m py_compile build_bank_v4.py sync_socialworkerdaily.py
+        run: python -m py_compile build_bank_v4.py sync_socialworkerdaily.py import_1152_official.py
       - name: Sync Socialworkerdaily source updates
         if: github.event_name == 'schedule'
         run: python sync_socialworkerdaily.py
@@ -99,6 +100,7 @@ jobs:
               if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
           PY
       - name: Commit verified bank only when changed
+        if: github.event_name != 'push'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
