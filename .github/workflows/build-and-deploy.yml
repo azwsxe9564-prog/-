@@ -37,7 +37,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check pypdf
       - name: Validate verified builder syntax
         run: python -m py_compile build_bank_v3.py
-      - name: Build verified Socialworkerdaily question bank
+      - name: Build verified question bank including 115-2
         run: python build_bank_v3.py
       - name: Mark official full-credit and multiple-answer items
         run: |
@@ -53,6 +53,7 @@ jobs:
               q['answer_type']='送分題' if q['is_full_credit'] else ('複數答案' if len(accepted)>1 else '單一答案')
           data.setdefault('meta',{})['full_credit_definition']='accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
           data.setdefault('meta',{})['sync_policy']='daily_verified_sync'
+          data.setdefault('meta',{})['115_2_verified']='official_moex_questions_and_answers'
           path.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
           print('full_credit_count=',sum(1 for q in data['questions'] if q['is_full_credit']))
           print('multiple_answer_count=',sum(1 for q in data['questions'] if q['answer_type']=='複數答案'))
@@ -67,8 +68,8 @@ jobs:
           print('question_count=',len(qs))
           print('paper_count=',m.get('papers_ok'))
           print('parser_version=',m.get('parser_version'))
-          if len(qs) != 2200: raise SystemExit(f"Expected 2200 questions, got {len(qs)}")
-          if m.get('papers_ok') != 55: raise SystemExit(f"Expected 55 papers, got {m.get('papers_ok')}")
+          if len(qs) != 2400: raise SystemExit(f"Expected 2400 questions, got {len(qs)}")
+          if m.get('papers_ok') != 60: raise SystemExit(f"Expected 60 papers, got {m.get('papers_ok')}")
           if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
           if any(not x.get('question') or len(x.get('choices',[])) != 4 for x in qs): raise SystemExit('Malformed question records.')
           if any(x.get('answer') not in (0,1,2,3) for x in qs): raise SystemExit('Invalid primary answers.')
@@ -77,6 +78,10 @@ jobs:
           if any('explanation' not in x for x in qs): raise SystemExit('Missing explanation records.')
           if any('is_full_credit' not in x or 'answer_type' not in x for x in qs): raise SystemExit('Missing answer classification records.')
           if any(x['is_full_credit'] != (sorted(set(x['accepted_answers'])) == [0,1,2,3]) for x in qs): raise SystemExit('Invalid full-credit classification.')
+          n1152=[x for x in qs if x.get('year')=='115' and x.get('session')=='2']
+          if len(n1152) != 200: raise SystemExit(f'115-2 must contain 200 questions, got {len(n1152)}')
+          if len({(x['subject'],x['number']) for x in n1152}) != 200: raise SystemExit('115-2 has duplicate subject/question records.')
+          if any(x.get('source_name') != '考選部官方考畢試題' for x in n1152): raise SystemExit('115-2 is not sourced from official MOEX questions.')
           ids=[x.get('id') for x in qs]
           if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
           PY
