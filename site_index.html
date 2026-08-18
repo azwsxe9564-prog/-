@@ -97,4 +97,5 @@ function showWeak(){const st=load("stats",{attempts:[],questions:{}}),ids=Object
 function showStats(){const st=load("stats",{attempts:[],questions:{}}),v=Object.values(st.questions),t=v.reduce((a,x)=>a+(x.total||0),0),r=v.reduce((a,x)=>a+(x.right||0),0),u=v.reduce((a,x)=>a+(x.uncertain||0),0),w=v.filter(isWeak).length;$("review").classList.remove("hidden");$("result").classList.add("hidden");$("review").innerHTML=`<h2>📊 成績統計</h2><div class="statgrid"><div class="stat"><small>累計作答</small><b>${t}</b></div><div class="stat"><small>答對</small><b>${r}</b></div><div class="stat"><small>正確率</small><b>${t?Math.round(r/t*100):0}%</b></div><div class="stat"><small>個人加強</small><b>${w}</b></div></div><p>⚑ 累計不確定標記：<b>${u}</b> 次</p><h3>最近測驗</h3>${st.attempts.slice(0,10).map(a=>`<p>${new Date(a.at).toLocaleString()}｜${a.score} 分｜${a.correct}/${a.total}｜不確定 ${a.uncertain||0}</p>`).join("")||"<p>尚無紀錄。</p>"}`}
 function goHome(){$("result").classList.add("hidden");$("review").classList.add("hidden");$("home").classList.remove("hidden");updatePool()}
 init();
-</script></body></html>
+</script><script src="study_modes.js?v=1"></script>
+</body></html>
