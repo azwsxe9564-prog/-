@@ -32,11 +32,8 @@ jobs:
           python - <<'PY'
           import json
           p=json.load(open('data/bank.json',encoding='utf-8'))
-          qs=p.get('questions',[])
-          m=p.get('meta',{})
-          print('question_count=',len(qs))
-          print('paper_count=',m.get('papers_ok'))
-          print('parser_version=',m.get('parser_version'))
+          qs=p.get('questions',[]); m=p.get('meta',{})
+          print('question_count=',len(qs)); print('paper_count=',m.get('papers_ok')); print('parser_version=',m.get('parser_version'))
           if len(qs) < 1000: raise SystemExit('Question bank is too small.')
           if m.get('papers_ok') != 55: raise SystemExit(f"Expected 55 papers, got {m.get('papers_ok')}")
           if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
@@ -58,7 +55,7 @@ jobs:
       - name: Prepare site
         run: |
           mkdir -p _site/data
-          cp index.html _site/index.html
+          cp index_v2.html _site/index.html
           cp data/bank.json _site/data/bank.json
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
