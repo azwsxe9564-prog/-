@@ -11,6 +11,9 @@ on:
       - 'site_enhancements.js'
       - 'review_order_fix.js'
       - '.github/workflows/build-and-deploy.yml'
+  schedule:
+    # 每天台灣時間 02:15 自動檢查社工日常是否有新題目/更新
+    - cron: '15 18 * * *'
   workflow_dispatch:
 
 permissions:
@@ -49,6 +52,7 @@ jobs:
               q['is_full_credit']=(accepted==full)
               q['answer_type']='送分題' if q['is_full_credit'] else ('複數答案' if len(accepted)>1 else '單一答案')
           data.setdefault('meta',{})['full_credit_definition']='accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
+          data.setdefault('meta',{})['sync_policy']='daily_verified_sync'
           path.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
           print('full_credit_count=',sum(1 for q in data['questions'] if q['is_full_credit']))
           print('multiple_answer_count=',sum(1 for q in data['questions'] if q['answer_type']=='複數答案'))
@@ -76,13 +80,17 @@ jobs:
           ids=[x.get('id') for x in qs]
           if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
           PY
-      - name: Commit generated verified bank
+      - name: Commit generated verified bank only when changed
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/bank.json
-          git diff --cached --quiet || git commit -m 'Build verified Socialworkerdaily question bank'
-          git push
+          if git diff --cached --quiet; then
+            echo 'No question-bank changes detected; keeping current bank.'
+          else
+            git commit -m 'Sync verified Socialworkerdaily question bank'
+            git push
+          fi
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Prepare site
