@@ -1,4 +1,5 @@
 name: Build and deploy study site
+
 on:
   push:
     branches: [main]
@@ -10,70 +11,80 @@ on:
       - 'site_enhancements.js'
       - 'review_order_fix.js'
       - '.github/workflows/build-and-deploy.yml'
+      - 'data/**'
   workflow_dispatch:
-  schedule:
-    - cron: '17 3 * * *'
+
 permissions:
   contents: write
   pages: write
   id-token: write
+
 concurrency:
   group: pages
   cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Install PDF parser
         run: python -m pip install --disable-pip-version-check pypdf
+
       - name: Validate verified builder syntax
         run: python -m py_compile build_bank_v3.py
+
       - name: Build verified Socialworkerdaily question bank
         run: python build_bank_v3.py
+
       - name: Mark official full-credit and multiple-answer items
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          path=Path('data/bank.json')
-          data=json.loads(path.read_text(encoding='utf-8'))
-          full=[0,1,2,3]
-          for q in data.get('questions',[]):
-              accepted=sorted(set(q.get('accepted_answers',[])))
-              q['is_full_credit']=(accepted==full)
-              q['answer_type']='送分題' if q['is_full_credit'] else ('複數答案' if len(accepted)>1 else '單一答案')
-          data.setdefault('meta',{})['full_credit_definition']='accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
-          path.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
-          print('full_credit_count=',sum(1 for q in data['questions'] if q['is_full_credit']))
-          print('multiple_answer_count=',sum(1 for q in data['questions'] if q['answer_type']=='複數答案'))
+          path = Path('data/bank.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          full = [0, 1, 2, 3]
+          for q in data.get('questions', []):
+              accepted = sorted(set(q.get('accepted_answers', [])))
+              q['is_full_credit'] = accepted == full
+              q['answer_type'] = '送分題' if q['is_full_credit'] else ('複數答案' if len(accepted) > 1 else '單一答案')
+          data.setdefault('meta', {})['full_credit_definition'] = 'accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
+          path.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+          print('full_credit_count=', sum(1 for q in data['questions'] if q['is_full_credit']))
+          print('multiple_answer_count=', sum(1 for q in data['questions'] if q['answer_type'] == '複數答案'))
           PY
+
       - name: Verify generated bank
         run: |
           test -s data/bank.json
           python - <<'PY'
           import json
-          p=json.load(open('data/bank.json',encoding='utf-8'))
-          qs=p.get('questions',[]); m=p.get('meta',{})
-          print('question_count=',len(qs))
-          print('paper_count=',m.get('papers_ok'))
-          print('parser_version=',m.get('parser_version'))
+          p = json.load(open('data/bank.json', encoding='utf-8'))
+          qs = p.get('questions', [])
+          m = p.get('meta', {})
+          print('question_count=', len(qs))
+          print('paper_count=', m.get('papers_ok'))
+          print('parser_version=', m.get('parser_version'))
           if len(qs) != 2200: raise SystemExit(f"Expected 2200 questions, got {len(qs)}")
           if m.get('papers_ok') != 55: raise SystemExit(f"Expected 55 papers, got {m.get('papers_ok')}")
           if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
-          if any(not x.get('question') or len(x.get('choices',[])) != 4 for x in qs): raise SystemExit('Malformed question records.')
-          if any(x.get('answer') not in (0,1,2,3) for x in qs): raise SystemExit('Invalid primary answers.')
-          if any(not x.get('accepted_answers') or any(a not in (0,1,2,3) for a in x['accepted_answers']) for x in qs): raise SystemExit('Invalid accepted answer sets.')
+          if any(not x.get('question') or len(x.get('choices', [])) != 4 for x in qs): raise SystemExit('Malformed question records.')
+          if any(x.get('answer') not in (0, 1, 2, 3) for x in qs): raise SystemExit('Invalid primary answers.')
+          if any(not x.get('accepted_answers') or any(a not in (0, 1, 2, 3) for a in x['accepted_answers']) for x in qs): raise SystemExit('Invalid accepted answer sets.')
           if any(not x.get('answer_verified') for x in qs): raise SystemExit('Found unverified answer records.')
           if any('explanation' not in x for x in qs): raise SystemExit('Missing explanation records.')
           if any('is_full_credit' not in x or 'answer_type' not in x for x in qs): raise SystemExit('Missing answer classification records.')
-          if any(x['is_full_credit'] != (sorted(set(x['accepted_answers'])) == [0,1,2,3]) for x in qs): raise SystemExit('Invalid full-credit classification.')
-          ids=[x.get('id') for x in qs]
+          if any(x['is_full_credit'] != (sorted(set(x['accepted_answers'])) == [0, 1, 2, 3]) for x in qs): raise SystemExit('Invalid full-credit classification.')
+          ids = [x.get('id') for x in qs]
           if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
           PY
+
       - name: Commit generated verified bank
         run: |
           git config user.name 'github-actions[bot]'
@@ -81,8 +92,10 @@ jobs:
           git add data/bank.json
           git diff --cached --quiet || git commit -m 'Build verified Socialworkerdaily question bank'
           git push
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
+
       - name: Prepare site
         run: |
           mkdir -p _site/data
@@ -95,20 +108,22 @@ jobs:
           printf '\n</script>\n' >> _site/index.html
           python - <<'PY'
           from pathlib import Path
-          p=Path('_site/index.html')
-          s=p.read_text(encoding='utf-8')
-          marker='<div class="hero"><h1>社工師國考｜110–115 歷屆真題備考</h1>'
-          box='''<div id="authBox" class="card" style="margin-top:10px"><button onclick="swGoogleLogin()">🔵 使用 Google 登入</button><div class="muted">不登入也可以完整刷題；登入後可跨裝置保存學習紀錄。</div></div>'''
+          p = Path('_site/index.html')
+          s = p.read_text(encoding='utf-8')
+          marker = '<div class="hero"><h1>社工師國考｜110–115 歷屆真題備考</h1>'
+          box = '''<div id="authBox" class="card" style="margin-top:10px"><button onclick="swGoogleLogin()">🔵 使用 Google 登入</button><div class="muted">不登入也可以完整刷題；登入後可跨裝置保存學習紀錄。</div></div>'''
           if 'id="authBox"' not in s:
-              pos=s.find('</div>',s.find(marker))+6
-              s=s[:pos]+box+s[pos:]
-          p.write_text(s,encoding='utf-8')
+              pos = s.find('</div>', s.find(marker)) + 6
+              s = s[:pos] + box + s[pos:]
+          p.write_text(s, encoding='utf-8')
           PY
           printf '\n<script>swInitAuth();</script>\n' >> _site/index.html
           touch _site/.nojekyll
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
   deploy:
     environment:
       name: github-pages
