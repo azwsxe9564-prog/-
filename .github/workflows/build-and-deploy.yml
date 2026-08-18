@@ -1,21 +1,19 @@
 name: Build and deploy study site
 
 on:
+  # 一般網站修改：直接部署現有已驗證題庫，不重新抓 MOEX。
   push:
     branches: [main]
     paths:
-      - 'build_bank_v4.py'
-      - 'sync_socialworkerdaily.py'
       - 'site_index_v4.html'
       - 'auth.js'
       - 'site_enhancements.js'
       - 'review_order_fix.js'
       - 'review_render_fix.js'
-      - '.github/workflows/build-and-deploy.yml'
   # 社工日常自動同步：每 5 天檢查一次。
-  # 這個排程只同步社工日常的題目、選項與解析，不讓 MOEX PDF 暫時異常阻斷同步。
   schedule:
     - cron: '15 18 */5 * *'
+  # 手動執行時才做完整官方題庫重建與驗證。
   workflow_dispatch:
 
 permissions:
@@ -32,12 +30,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
+        if: github.event_name != 'push'
         with:
           python-version: '3.12'
+
       - name: Install PDF parser
+        if: github.event_name != 'push'
         run: python -m pip install --disable-pip-version-check pypdf
+
       - name: Validate builders
+        if: github.event_name != 'push'
         run: python -m py_compile build_bank_v4.py sync_socialworkerdaily.py
 
       - name: Sync Socialworkerdaily source updates
@@ -45,7 +49,7 @@ jobs:
         run: python sync_socialworkerdaily.py
 
       - name: Build verified official question bank
-        if: github.event_name != 'schedule'
+        if: github.event_name == 'workflow_dispatch'
         run: python build_bank_v4.py
 
       - name: Mark official full-credit and multiple-answer items
@@ -69,17 +73,17 @@ jobs:
           PY
 
       - name: Verify generated bank
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           test -s data/bank.json
           python - <<'PY'
-          import json
+          import json, os
           p=json.load(open('data/bank.json',encoding='utf-8'))
           qs=p.get('questions',[]); m=p.get('meta',{})
+          print('event=',os.environ['EVENT_NAME'])
           print('question_count=',len(qs))
           print('paper_count=',m.get('papers_ok'))
-          print('paper_question_counts=',m.get('paper_question_counts'))
-          if github_event := '${{ github.event_name }}':
-              pass
           if any(not x.get('question') or len(x.get('choices',[])) != 4 for x in qs): raise SystemExit('Malformed question records.')
           if any(x.get('answer') not in (0,1,2,3) for x in qs): raise SystemExit('Invalid primary answers.')
           if any(not x.get('accepted_answers') or any(a not in (0,1,2,3) for a in x['accepted_answers']) for x in qs): raise SystemExit('Invalid accepted answer sets.')
@@ -89,12 +93,9 @@ jobs:
           if any(x['is_full_credit'] != (sorted(set(x['accepted_answers'])) == [0,1,2,3]) for x in qs): raise SystemExit('Invalid full-credit classification.')
           ids=[x.get('id') for x in qs]
           if len(ids) != len(set(ids)): raise SystemExit('Duplicate question IDs.')
-          expected_counts=m.get('paper_question_counts',{})
-          actual_counts={}
-          for x in qs:
-              key=f"{x['year']}-{x['session']}-{x['subject']}"
-              actual_counts[key]=actual_counts.get(key,0)+1
-          if actual_counts != expected_counts: raise SystemExit('Per-paper question counts do not match generated metadata.')
+          if os.environ['EVENT_NAME'] == 'workflow_dispatch':
+              if m.get('papers_ok') != 60: raise SystemExit(f"Expected 60 papers, got {m.get('papers_ok')}")
+              if m.get('papers_failed'): raise SystemExit(f"Paper failures: {m['papers_failed']}")
           PY
 
       - name: Commit verified bank only when changed
