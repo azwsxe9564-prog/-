@@ -61,7 +61,7 @@ jobs:
       - name: Prepare site
         run: |
           mkdir -p _site/data
-          cp site_index.html _site/index.html
+          cp site_index_v4.html _site/index.html
           cp data/bank.json _site/data/bank.json
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
