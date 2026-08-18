@@ -1,6 +1,6 @@
-/* Full-credit / multiple-answer labels, scoring adjustments, and per-subject performance chart. */
+/* Full-credit / multiple-answer labels, scoring adjustments, subject performance chart, and clickable mind-map term definitions. */
 (function(){
-  function currentQuestion(){ try { return (typeof quiz !== 'undefined' && quiz && quiz[cur]) || null; } catch(e){ return null; } }
+  function currentQuestion(){ try { return (typeof quiz !== 'undefined' && quiz && quiz[cur]) || null; } catch(e) { return null; } }
   function isFullCredit(x){ return !!(x && (x.is_full_credit || (Array.isArray(x.accepted_answers) && x.accepted_answers.length===4))); }
   function isMultiple(x){ return !!(x && !isFullCredit(x) && Array.isArray(x.accepted_answers) && x.accepted_answers.length>1); }
   function badge(x){ if(isFullCredit(x)) return '<span class="tag full-credit-tag">🎁 送分題｜本題一律給分</span>'; if(isMultiple(x)) return '<span class="tag multi-answer-tag">⚠️ 複數答案｜'+x.accepted_answers.map(i=>['A','B','C','D'][i]).join('、')+' 均可</span>'; return ''; }
@@ -14,11 +14,54 @@
   function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   const originalRender=window.render;if(typeof originalRender==='function'){window.render=function(){originalRender();decorateQuestion();decorateFeedback();};}
   const originalSubmit=window.submitQuiz;if(typeof originalSubmit==='function'){window.submitQuiz=function(){const saved={};try{(quiz||[]).forEach(x=>{if(isFullCredit(x)&&answers[x.id]===undefined){saved[x.id]=undefined;answers[x.id]=0;}});originalSubmit();}finally{Object.keys(saved).forEach(id=>delete answers[id]);}};}
-  const observer=new MutationObserver(function(){decorateQuestion();decorateFeedback();decorateResult();});observer.observe(document.body,{subtree:true,childList:true});window.setTimeout(function(){decorateQuestion();decorateFeedback();decorateResult();},50);
+  const observer=new MutationObserver(function(){decorateQuestion();decorateFeedback();decorateResult();bindMindTerms();});observer.observe(document.body,{subtree:true,childList:true});window.setTimeout(function(){decorateQuestion();decorateFeedback();decorateResult();bindMindTerms();},50);
+
+  /* Click any mind-map term to show its matching core definition immediately. */
+  const TERM_INFO={
+    '人在情境中':{title:'人在情境中',body:'理解個人時，不能只看個人的特質或問題，也要同時考量其所處的家庭、社區、組織與社會環境，以及這些脈絡如何影響個人的生活與行為。'},
+    '生態系統觀點':{title:'生態系統觀點',body:'從個人與環境之間的互動來理解問題，關注不同系統彼此的影響，以及個人與環境是否存在適配或失配。'},
+    '個人 ↔ 環境':{title:'個人 ↔ 環境',body:'強調個人與環境是相互影響的。評估問題時，不只問「個人出了什麼問題」，也要看環境是否提供足夠資源、支持與適當條件。'},
+    '家庭／組織／社區':{title:'家庭／組織／社區',body:'屬於理解個人處境時可觀察的環境脈絡。家庭、組織與社區可能提供支持，也可能成為壓力或限制來源。'},
+    '整體性評估':{title:'整體性評估',body:'不只聚焦單一症狀或事件，而是整合個人、家庭、環境、資源、優勢與問題脈絡，形成較完整的評估。'},
+    '專業關係':{title:'專業關係',body:'社工與服務對象之間為助人目的所建立的有界線關係，包含信任、尊重、合作與專業界線。'},
+    '接納':{title:'接納',body:'尊重服務對象作為一個獨特的人，理解其感受與處境，而不是以個人的價值標準否定或評斷對方。'},
+    '同理':{title:'同理',body:'嘗試從服務對象的觀點理解其感受、想法與經驗，並讓對方感受到自己被理解。'},
+    '合作目標':{title:'合作目標',body:'由社工與服務對象共同討論並形成的工作方向，強調服務對象的參與與自主，而非由社工單方面決定。'},
+    '福利政策':{title:'福利政策',body:'政府或社會為回應社會需求、分配福利資源與促進社會福祉所形成的政策安排。'},
+    '資源分配':{title:'資源分配',body:'討論有限的社會資源如何在不同人口、需求與群體之間分配，是社會政策的重要議題。'},
+    '公平／正義':{title:'公平／正義',body:'關注福利資源、權利與機會的分配是否合理，以及不同群體是否受到公平對待。'},
+    '制度設計':{title:'制度設計',body:'將政策目標轉化為具體制度與服務安排，包括資格、給付、服務方式與執行機制等。'},
+    '發展階段':{title:'發展階段',body:'將人的發展視為具有不同階段與任務的歷程，理解各階段可能出現的身心與社會發展特徵。'},
+    '心理社會發展':{title:'心理社會發展',body:'強調人的心理發展與社會環境、社會關係之間的互動，常用於理解不同生命階段的發展任務。'},
+    '環境脈絡':{title:'環境脈絡',body:'指影響個人生活與行為的家庭、社區、文化、制度與社會條件等背景。'},
+    '信度':{title:'信度',body:'測量工具結果的一致性或穩定程度。信度高表示在相同或相近條件下，測量結果較為一致。'},
+    '一致性':{title:'一致性',body:'測量結果在不同題目、評分者或測量時點之間維持一致的程度，屬於信度概念的重要面向。'},
+    '穩定性':{title:'穩定性',body:'同一測量工具在不同時間重複測量時，結果維持相近的程度。'},
+    '效度':{title:'效度',body:'測量工具是否真正測量到它所要測量的概念或特質。'},
+    '測量':{title:'測量',body:'依據一定規則，將研究對象的特徵或概念轉化為可觀察、可記錄或可比較的數值或類別。'}
+  };
+  function showTerm(term){
+    const info=TERM_INFO[term]||{title:term,body:'目前核心名詞庫尚未建立這個名詞的完整解釋。可先將它加入名詞庫，之後再補充定義。'};
+    let box=document.getElementById('mindTermInfo');
+    if(!box){box=document.createElement('div');box.id='mindTermInfo';box.className='mind-term-info';const anchor=document.querySelector('.mind.show')||document.querySelector('.mind');if(anchor)anchor.parentNode.insertBefore(box,anchor.nextSibling);else return;}
+    box.innerHTML='<div class="mind-term-head"><b>🔑 '+escapeHtml(info.title)+'</b><button type="button" class="secondary mind-term-close">關閉</button></div><div class="mind-term-body">'+escapeHtml(info.body)+'</div>';
+    box.classList.add('show');
+    box.querySelector('.mind-term-close').onclick=function(){box.classList.remove('show')};
+  }
+  function bindMindTerms(){
+    document.querySelectorAll('.mind .node').forEach(function(node){
+      if(node.dataset.termBound)return;
+      node.dataset.termBound='1';
+      const term=node.textContent.trim();
+      node.setAttribute('role','button');node.setAttribute('tabindex','0');node.title='點擊查看名詞解釋';node.classList.add('mind-clickable');
+      node.addEventListener('click',function(e){e.preventDefault();showTerm(term)});
+      node.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();showTerm(term)}});
+    });
+  }
+  const mindStyle=document.createElement('style');mindStyle.textContent='.mind .mind-clickable{cursor:pointer;transition:transform .15s,box-shadow .15s}.mind .mind-clickable:hover{transform:translateY(-1px);box-shadow:0 2px 8px rgba(47,111,94,.12)}.mind .mind-clickable:focus{outline:2px solid #2f6f5e;outline-offset:2px}.mind-term-info{background:#fff;border:1px solid #dfe7e3;border-radius:14px;padding:14px;margin-top:12px;box-shadow:0 3px 12px rgba(36,49,45,.06)}.mind-term-head{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:18px;color:#2f6f5e}.mind-term-close{font-size:12px;padding:7px 10px}.mind-term-body{margin-top:9px;line-height:1.8;color:#40504a}';document.head.appendChild(mindStyle);
 
   /* Passwordless email login + cloud learning sync */
   const SUPABASE_URL='https://qphaiblahlglcoyieyzm.supabase.co';
-  // Set this to the project's publishable/anon key. Do not use a service_role key.
   const SUPABASE_KEY=window.SUPABASE_PUBLISHABLE_KEY||'';
   let sb=null,authUser=null;
   const LOCAL_KEYS=['stats','studyStats','study_history','examHistory','favorites','bookmarks','wrongQuestions','uncertainQuestions','personalStrength','learningProgress'];
