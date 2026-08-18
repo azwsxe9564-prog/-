@@ -1,0 +1,32 @@
+name: Install study review integration
+on:
+  push:
+    branches: [main]
+    paths:
+      - study_review_v3.js
+      - .github/workflows/install-study-review-v3.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inject review integration
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('index_v2.html')
+          s=p.read_text(encoding='utf-8')
+          tag='<script src="study_review_v3.js?v=3"></script>'
+          if tag not in s:
+              if '</body>' not in s: raise SystemExit('index_v2.html has no </body>')
+              s=s.replace('</body>',tag+'\n</body>',1)
+              p.write_text(s,encoding='utf-8')
+          else: print('Already installed')
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index_v2.html
+          if git diff --cached --quiet; then echo "No changes needed"; else git commit -m "Integrate instant review and strengthening rules"; git push; fi
