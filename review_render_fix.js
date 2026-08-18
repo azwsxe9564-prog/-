@@ -2,17 +2,51 @@
 (function(){
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   function label(i){return ['A','B','C','D'][Number(i)]||'?';}
-  function accepted(q){const vals=Array.isArray(q&&q.accepted_answers)&&q.accepted_answers.length?q.accepted_answers:[Number(q&&q.answer)];return vals;}
-  function userAnswer(q){try{return (typeof answers!=='undefined'&&answers&&answers[q.id]!==undefined)?Number(answers[q.id]):null;}catch(e){return null;}}
-  function isFull(q){return accepted(q).length===4;}
-  function explanation(q){const candidates=[q&&q.explanation,q&&q.analysis,q&&q.solution,q&&q.answer_explanation,q&&q.rationale];for(const x of candidates)if(typeof x==='string'&&x.trim())return x.trim();if(q&&q.explanation_source==='考選部官方試題未提供解析')return '本題目前沒有考選部官方解析；正確答案以考選部測驗式試題標準答案為準。';return '目前這題的題庫資料沒有提供解析文字。答案仍以考選部測驗式試題標準答案為準。';}
+  function accepted(q){const vals=Array.isArray(q&&q.accepted_answers)&&q.accepted_answers.length?q.accepted_answers:[Number(q&&q.answer)];return vals.filter(Number.isInteger);}
+  function entryQuestion(entry){return entry&&entry.x?entry.x:entry;}
+  function entryAnswer(entry){
+    if(entry&&Object.prototype.hasOwnProperty.call(entry,'a')) return entry.a==null?null:Number(entry.a);
+    const q=entryQuestion(entry);
+    try{return (typeof answers!=='undefined'&&answers&&q&&answers[q.id]!==undefined)?Number(answers[q.id]):null;}catch(e){return null;}
+  }
+  function isFull(q){return !!(q&&((q.is_full_credit===true)||accepted(q).length===4));}
+  function explanation(q){
+    const candidates=[q&&q.explanation,q&&q.analysis,q&&q.solution,q&&q.answer_explanation,q&&q.rationale];
+    for(const x of candidates) if(typeof x==='string'&&x.trim()) return x.trim();
+    if(q&&q.explanation_source==='考選部官方試題未提供解析') return '本題目前沒有考選部官方解析；正確答案以考選部測驗式試題標準答案為準。';
+    return '目前這題的題庫資料沒有提供解析文字。答案仍以考選部測驗式試題標準答案為準。';
+  }
   function render(){
-    const root=document.getElementById('review');if(!root)return;
-    let wrong=[];try{wrong=Array.isArray(lastWrong)?lastWrong.slice():[];}catch(e){}
-    if(!wrong.length){try{const pool=Array.isArray(quiz)?quiz:[];wrong=pool.filter(q=>{const u=userAnswer(q);return u!==null&&!accepted(q).includes(u)&&!isFull(q);});}catch(e){}}
-    root.innerHTML='<div class="actions"><button class="secondary" onclick="goHome()">← 回首頁</button></div><h2>錯題檢討</h2>'+(!wrong.length?'<div class="status ok">本次沒有錯題，太好了！</div>':'<div class="muted">共 '+wrong.length+' 題。以下直接顯示題目、全部選項、正確答案、你的答案與題解，不需要跳轉。</div>'+wrong.map((q,i)=>{const correct=accepted(q),u=userAnswer(q),choices=Array.isArray(q.choices)?q.choices:[];const opts=choices.map((c,j)=>{const isCorrect=correct.includes(j),isUser=u===j;const cls=isCorrect?'review-choice correct':(isUser?'review-choice wrong':'review-choice');let mark=isCorrect?' <b>✓ 正確</b>':'';if(isUser&&!isCorrect)mark+=' <b>← 我的答案</b>';return '<div class="'+cls+'"><span class="review-letter">'+label(j)+'</span><span>'+esc(c)+'</span>'+mark+'</div>';}).join('');const correctText=correct.map(label).join('、'),userText=u===null?'未作答':label(u),tag=isFull(q)?'<span class="tag">🎁 送分題</span>':(correct.length>1?'<span class="tag">⚠️ 複數答案：'+esc(correctText)+'</span>':'');return '<article class="review-item"><div class="review-title"><b>'+(i+1)+'．'+esc(q.year||'')+' '+esc(q.subject||'')+'｜第 '+esc(q.number||'')+' 題</b>'+tag+'</div><div class="review-question">'+esc(q.question||'')+'</div>'+opts+'<div class="review-answer"><b>正確答案：'+esc(correctText)+'</b>｜你的答案：<b>'+esc(userText)+'</b></div><div class="review-explanation"><div class="review-explanation-title">📖 題解／解析</div><div class="review-explanation-text">'+esc(explanation(q))+'</div><div class="review-source muted">解析來源：'+esc(q.source_name||'題庫來源')+'</div></div></article>';}).join(''));
+    const root=document.getElementById('review'); if(!root)return;
+    let entries=[];
+    try{entries=Array.isArray(lastWrong)?lastWrong.slice():[];}catch(e){}
+    if(!entries.length){root.innerHTML='<h2>錯題檢討</h2><div class="status ok">本次沒有錯題，太好了！</div>';return;}
+    const items=entries.map(entry=>{
+      const q=entryQuestion(entry); if(!q)return '';
+      const correct=accepted(q), u=entryAnswer(entry), choices=Array.isArray(q.choices)?q.choices:[];
+      const opts=choices.map((c,j)=>{
+        const isCorrect=correct.includes(j), isUser=u===j;
+        const cls=isCorrect?'review-choice correct':(isUser&&!isCorrect?'review-choice wrong':'review-choice');
+        let mark=isCorrect?' <b>✓ 正確答案</b>':'';
+        if(isUser&&!isCorrect) mark+=' <b>← 我的答案</b>';
+        if(isUser&&isCorrect) mark+=' <b>← 我的答案</b>';
+        return '<div class="'+cls+'"><span class="review-letter">'+label(j)+'</span><span>'+esc(c)+'</span>'+mark+'</div>';
+      }).join('');
+      const correctText=correct.map(label).join('、');
+      const userText=u===null?'未作答':label(u);
+      const tag=isFull(q)?'<span class="tag">🎁 送分題</span>':(correct.length>1?'<span class="tag">⚠️ 複數答案：'+esc(correctText)+'</span>':'');
+      return '<article class="review-item"><div class="review-title"><b>'+esc(q.year||'')+' '+esc(q.subject||'')+'｜第 '+esc(q.number||'')+' 題</b>'+tag+'</div>'+
+        '<div class="review-question">'+esc(q.question||'')+'</div>'+opts+
+        '<div class="review-answer"><b>正確答案：'+esc(correctText)+'</b>｜你的答案：<b>'+esc(userText)+'</b></div>'+
+        '<div class="review-explanation"><div class="review-explanation-title">📖 題解／解析</div><div class="review-explanation-text">'+esc(explanation(q))+'</div><div class="review-source muted">解析來源：'+esc(q.explanation_source||q.source_name||'題庫來源')+'</div></div></article>';
+    }).join('');
+    root.innerHTML='<div class="actions"><button class="secondary" onclick="goHome()">← 回首頁</button></div><h2>錯題檢討</h2><div class="muted">共 '+entries.length+' 題。直接顯示題目、四個選項、正確答案、你的答案與題解。</div>'+items;
   }
   window.renderWrongReview=render;
-  window.showReview=function(){document.querySelectorAll('section').forEach(s=>{if(s.id!=='review')s.classList.add('hidden');});const root=document.getElementById('review');if(root){root.classList.remove('hidden');render();root.scrollIntoView({behavior:'smooth',block:'start'});}};
+  window.showReview=function(){
+    document.querySelectorAll('section').forEach(s=>{if(s.id!=='review')s.classList.add('hidden');});
+    const root=document.getElementById('review');
+    if(root){root.classList.remove('hidden');render();root.scrollIntoView({behavior:'smooth',block:'start'});}
+  };
   window.addEventListener('load',()=>{const s=document.createElement('style');s.textContent='.review-item{border:1px solid #dfe7e3;border-radius:16px;padding:16px;margin:14px 0;background:#fff}.review-title{font-size:16px;margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.review-question{font-size:17px;line-height:1.85;margin:10px 0 14px}.review-choice{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid #dfe7e3;border-radius:10px;margin:7px 0;background:#fff;line-height:1.7}.review-choice.correct{background:#eaf7ef;border-color:#77b78c}.review-choice.wrong{background:#fff0f1;border-color:#e17b83}.review-letter{font-weight:800;min-width:24px}.review-answer{margin-top:12px;padding:12px;border-radius:10px;background:#f3f7f5;line-height:1.8}.review-explanation{margin-top:12px;background:#f8faf9;border-left:5px solid #2f6f5e;border-radius:8px;padding:14px}.review-explanation-title{font-weight:800;margin-bottom:7px}.review-explanation-text{line-height:1.9;white-space:pre-wrap}.review-source{margin-top:8px}.review-item .tag{margin-left:4px}';document.head.appendChild(s);});
 })();
