@@ -8,6 +8,7 @@ on:
       - 'site_index_v4.html'
       - 'auth.js'
       - 'site_enhancements.js'
+      - 'review_order_fix.js'
       - '.github/workflows/build-and-deploy.yml'
   workflow_dispatch:
   schedule:
@@ -90,6 +91,7 @@ jobs:
           printf '\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script>\n' >> _site/index.html
           cat auth.js >> _site/index.html
           cat site_enhancements.js >> _site/index.html
+          cat review_order_fix.js >> _site/index.html
           printf '\n</script>\n' >> _site/index.html
           python - <<'PY'
           from pathlib import Path
