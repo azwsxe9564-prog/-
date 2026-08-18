@@ -24,7 +24,12 @@
     if(cloud===undefined)return local;
     if(Array.isArray(cloud)&&Array.isArray(local)){
       const out=[...cloud,...local],seen=new Set();
-      return out.filter(v=>{const id=v&&typeof v==='object'?(v.id||v.at||JSON.stringify(v)):String(v);if(seen.has(id))return false;seen.add(id);return true}).slice(-500);
+      return out.filter(v=>{
+        const id=v&&typeof v==='object'?(v.id||v.at||JSON.stringify(v)):String(v);
+        if(seen.has(id))return false;
+        seen.add(id);
+        return true;
+      }).slice(-500);
     }
     if(cloud&&typeof cloud==='object'&&local&&typeof local==='object')return {...cloud,...local};
     return local;
@@ -58,7 +63,7 @@
   }
 
   async function push(){
-    if(!client||!window.swCloud||!window.swCloud.user||syncing)return;
+    if(!client||!window.swCloud||!window.swCloud.user||!window.swCloud.ready||syncing)return;
     syncing=true;
     try{
       const payload=readLocal();
@@ -109,7 +114,7 @@
 
   if(client){
     client.auth.onAuthStateChange(function(_event,session){
-      if(session){window.swCloud.user=session.user;window.swCloud.ready=true;schedulePush();}
+      if(session)window.swCloud.user=session.user;
     });
   }
 
