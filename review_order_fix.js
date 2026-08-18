@@ -1,4 +1,5 @@
 /* Review answer order fix: show correct answer before user's answer. */
+/* Deployment trigger after inline review renderer fix. */
 (function(){
   function fixReviewOrder(){
     const root=document.getElementById('review');
