@@ -1,0 +1,103 @@
+name: Add keyword glossary review feature
+on:
+  push:
+    branches: [main]
+    paths:
+      - site_index.html
+      - .github/workflows/add-keyword-review.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add keyword review UI
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('site_index.html')
+          s = p.read_text(encoding='utf-8')
+          if 'KEYWORD_GLOSSARY_V1' in s:
+              print('keyword feature already installed')
+              raise SystemExit(0)
+
+          css = r'''
+          /* KEYWORD_GLOSSARY_V1 */
+          .keywordbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0}
+          .keywordbar input{flex:1;min-width:220px;padding:11px 13px;border:1px solid #cfdad5;border-radius:10px;font:inherit}
+          .keywordbtn{background:#eef3f0;color:var(--ink);border:1px solid var(--line);padding:8px 11px;border-radius:999px;font-size:13px}
+          .keywordPage{min-height:420px}
+          .keywordHero{background:var(--soft);border-radius:14px;padding:16px;margin:10px 0}
+          .keywordHero h2{margin:0 0 6px}
+          .keywordSection{border-top:1px solid var(--line);padding:14px 0}
+          .keywordSection h3{margin:0 0 8px}
+          .keywordRelated{display:flex;gap:7px;flex-wrap:wrap}
+          .keywordSource{font-size:12px;color:var(--muted);line-height:1.7}
+          '''
+          s = s.replace('</style>', css + '\n</style>', 1)
+
+          page = r'''
+          <section id="keywordPage" class="card hidden keywordPage">
+            <div class="actions"><button class="secondary" onclick="closeKeywordPage()">← 返回錯題檢討</button><button class="secondary" onclick="goHome()">回首頁</button></div>
+            <div class="keywordbar">
+              <input id="keywordSearch" placeholder="搜尋關鍵名詞，例如：創傷知情、生態系統、同理……" oninput="searchKeywords()">
+              <button onclick="searchKeywords()">🔎 搜尋</button>
+            </div>
+            <div id="keywordResults"></div>
+          </section>
+          '''
+          s = s.replace('<section id="result" class="card hidden"></section><section id="review" class="card hidden"></section>', '<section id="result" class="card hidden"></section><section id="review" class="card hidden"></section>' + page, 1)
+
+          glossary = r'''
+          const KEYWORD_GLOSSARY_V1={
+            "創傷知情":{alias:["創傷知情照護","trauma-informed"],summary:"以創傷可能普遍存在及其影響為前提，理解個案的反應與需求，並把創傷知識融入服務流程與關係中，同時避免再度受創。",points:["4R：Realize 理解、Recognize 辨認、Respond 回應、Resist re-traumatization 防止再度受創","重視安全、信任、選擇與自主、合作與賦權","不是只處理創傷症狀，也會檢視服務環境與制度是否可能造成再度受創"],exam:"看到「創傷知情」時，先想到：理解創傷影響 → 辨識反應 → 以創傷知識回應 → 避免再度受創。",related:["安全感","復原力","賦權","同理","專業關係"],source:["SAMHSA trauma-informed approach","https://www.samhsa.gov/resource/dbhis/trauma-informed-care-behavioral-health-services"]},
+            "人在情境中":{alias:["person-in-environment","PIE"],summary:"不只看個人本身，也把家庭、組織、社區、文化與社會環境納入理解與評估。",points:["個人與環境彼此影響","評估問題時避免只把原因歸於個人","可連結生態系統觀點"],exam:"看到「人在情境中」→ 優先想到：生態系統觀點。",related:["生態系統觀點","環境脈絡","家庭系統","社區" ]},
+            "生態系統觀點":{alias:["生態觀點","生態系統理論","ecological perspective"],summary:"將個人放在多層次環境中理解，關注個人與家庭、組織、社區及更大社會系統的互動。",points:["微視、中介、外在與宏觀環境可相互影響","問題可能來自個人與環境的不適配","介入可同時從個人與環境著手"],exam:"看到「環境、脈絡、系統、互動」等線索，可聯想到生態系統觀點。",related:["人在情境中","系統理論","環境不適配"]},
+            "同理":{alias:["同理心","empathy"],summary:"理解並貼近服務對象的主觀經驗與感受，並以對方能理解的方式回應，而非急著評價或給建議。",points:["理解對方的感受與觀點","不等於認同所有行為","以回應與澄清確認理解"],exam:"看到「理解感受、站在對方角度、主觀經驗」→ 想到同理。",related:["接納","傾聽","專業關係"]},
+            "接納":{alias:["acceptance"],summary:"以尊重與非評判態度面對服務對象，承認其作為人的價值與差異。",points:["不因背景、行為或價值差異否定個人價值","接納不等於同意或放任","與專業界線並存"],exam:"看到「不批判、尊重個別性」→ 優先想到接納。",related:["同理","尊重","個別化"]},
+            "專業關係":{alias:["助人關係","professional relationship"],summary:"社工與服務對象為達成助人目標而建立的有目的關係，需兼顧信任、角色與專業界線。",points:["有目的性與專業性","需要適當界線","關係本身可成為介入媒介"],exam:"看到「界線、角色、目的、信任」→ 想到專業關係。",related:["專業界線","同理","接納"]},
+            "賦權":{alias:["empowerment"],summary:"強化個人或群體對自身生活與資源的掌控感、選擇權與行動能力。",points:["重視優勢與能力","增加選擇與參與","避免社工取代個案決定"],exam:"看到「自主、選擇、權力、參與」→ 聯想到賦權。",related:["自主","優勢觀點","倡導"]},
+            "優勢觀點":{alias:["strengths perspective"],summary:"從服務對象的能力、資源、韌性與可能性出發，而不只聚焦問題與缺陷。",points:["找優勢與資源","看見復原與改變可能","問題仍需評估，但不是唯一焦點"],exam:"看到「能力、資源、韌性」→ 優勢觀點。",related:["賦權","復原力","資源"]},
+            "家庭系統":{alias:["家庭系統理論"],summary:"把家庭視為相互影響的系統，個別成員的變化會牽動其他成員與家庭互動模式。",points:["關注互動與界線","避免只把問題歸因單一成員","可觀察三角關係與代間模式"],exam:"看到「家庭互動、界線、三角、代間」→ 聯想到家庭系統。",related:["三角關係","代間重複","家庭界線"]},
+            "反移情":{alias:["countertransference"],summary:"助人者因自身經驗、情感或需要而對服務對象產生的反應，可能影響專業判斷與關係。",points:["需要自我覺察","可透過督導與反思處理","不等於一般的同理反應"],exam:"看到「社工自身情緒被個案勾起、影響判斷」→ 想到反移情。",related:["移情","督導","自我覺察"]},
+            "危機介入":{alias:["危機處理","crisis intervention"],summary:"針對當事人因重大事件或壓力造成的失衡狀態，先協助恢復基本穩定與功能，再進一步處理問題。",points:["重視當下與安全","聚焦近期事件與可行因應","常見短期、具體、目標導向"],exam:"看到「急性失衡、安全、立即處理」→ 危機介入。",related:["危機評估","安全計畫","支持"]},
+            "社會支持":{alias:["social support"],summary:"來自家庭、朋友、同儕、社區或正式服務系統的情緒、資訊、工具與實質支持。",points:["可分正式與非正式","支持網絡會影響適應與復原","可作為評估與介入資源"],exam:"看到「支持網絡、資源、人際連結」→ 社會支持。",related:["資源網絡","社區","復原力"]},
+            "復原力":{alias:["韌性","resilience"],summary:"個人、家庭或系統面對逆境後維持、恢復或發展適應能力的動態歷程。",points:["不是天生固定特質","保護因子與支持環境很重要","可在關係與資源中培養"],exam:"看到「逆境、適應、恢復、保護因子」→ 復原力。",related:["優勢觀點","創傷知情","保護因子"]},
+            "信度":{alias:["reliability"],summary:"測量工具結果的一致性或穩定程度。",points:["重測信度","內部一致性","評分者間信度"],exam:"看到「一致、穩定、重複測量」→ 信度。",related:["效度","測量"]},
+            "效度":{alias:["validity"],summary:"測量工具是否真正測到它聲稱要測量的概念。",points:["內容效度","效標關聯效度","建構效度"],exam:"看到「測到真正想測的東西」→ 效度。",related:["信度","測量"]}
+          };
+          function allKeywords(){return Object.keys(KEYWORD_GLOSSARY_V1)}
+          function keywordMatches(x){const text=((x.question||"")+" "+(x.explanation||"")).toLowerCase();return allKeywords().filter(k=>text.includes(k.toLowerCase())||((KEYWORD_GLOSSARY_V1[k].alias||[]).some(a=>text.includes(String(a).toLowerCase())))).slice(0,8)}
+          function openKeywordPage(term){const d=KEYWORD_GLOSSARY_V1[term];if(!d)return;$("review").classList.add("hidden");$("result").classList.add("hidden");$("keywordPage").classList.remove("hidden");$("keywordSearch").value=term;renderKeyword(term)}
+          function renderKeyword(term){const d=KEYWORD_GLOSSARY_V1[term];if(!d)return;const rel=(d.related||[]).filter(x=>KEYWORD_GLOSSARY_V1[x]);$("keywordResults").innerHTML=`<div class="keywordHero"><h2>${esc(term)}</h2><div class="muted">${esc((d.alias||[]).join("｜"))}</div></div><div class="keywordSection"><h3>📌 一句話理解</h3><p>${esc(d.summary)}</p></div><div class="keywordSection"><h3>🧠 核心概念</h3><ul>${(d.points||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div><div class="keywordSection"><h3>📝 國考看到這個詞</h3><div class="explain">${esc(d.exam||"")}</div></div><div class="keywordSection"><h3>🔗 連貫思考</h3><div class="keywordRelated">${rel.map(x=>`<button class="keywordbtn" onclick="openKeywordPage('${x.replaceAll("'","\\'")}')">${esc(x)}</button>`).join("")||"<span class='muted'>尚無已建立的相關詞條。</span>"}</div></div>${d.source?`<div class="keywordSection keywordSource"><b>延伸資料</b><br>${esc(d.source[0])}｜<a href="${d.source[1]}" target="_blank" rel="noopener">查看來源</a></div>`:""}`}
+          function searchKeywords(){const q=$("keywordSearch").value.trim().toLowerCase();const keys=allKeywords().filter(k=>!q||k.toLowerCase().includes(q)||((KEYWORD_GLOSSARY_V1[k].alias||[]).some(a=>String(a).toLowerCase().includes(q))));$("keywordResults").innerHTML=q&&keys.length===1?"":`<div class="keywordSection"><h3>關鍵名詞</h3><div class="keywordRelated">${keys.map(k=>`<button class="keywordbtn" onclick="openKeywordPage('${k.replaceAll("'","\\'")}')">${esc(k)}</button>`).join("")||"<p class='muted'>找不到詞條，可以換一個關鍵字。</p>"}</div></div>`;if(q&&keys.length===1)renderKeyword(keys[0])}
+          function closeKeywordPage(){$("keywordPage").classList.add("hidden");$("review").classList.remove("hidden")}
+          '''
+
+          review_replacement = r'''
+          function showReview(){$("result").classList.add("hidden");$("keywordPage").classList.add("hidden");$("review").classList.remove("hidden");const st=load("stats",{attempts:[],questions:{}});$("review").innerHTML="<h2>錯題檢討</h2><div class='keywordbar'><input id='reviewKeywordSearch' placeholder='🔎 搜尋關鍵名詞，例如：創傷知情' onkeydown='if(event.key==="Enter")openKeywordPageBySearch()'><button class='secondary' onclick='openKeywordPageBySearch()'>關鍵名詞搜索</button></div>"+(lastWrong.length?lastWrong.map(({x,a})=>{const q=st.questions[x.id]||{},flagged=lastUncertain.some(z=>z.x.id===x.id),ks=keywordMatches(x);return `<div class="wrong"><b>${x.year}｜${x.subject}｜第 ${x.number} 題</b>${flagged?'<span class="tag">⚑ 曾標記不確定</span>':""}<p>${esc(x.question)}</p><p>你的答案：${a==null?"未作答":String.fromCharCode(65+a)}｜正確答案：<b>${String.fromCharCode(65+x.answer)}</b></p><div class="explain"><b>解析</b><br>${esc(x.explanation||"本題解析請以題庫來源提供的解析為準。")}<br><span class="meta"><a href="${x.source||"#"}" target="_blank" rel="noopener">原始題目</a></span></div>${ks.length?`<div class="keywordbar"><b>🔑 本題關鍵名詞：</b>${ks.map(k=>`<button class="keywordbtn" onclick="openKeywordPage('${k.replaceAll("'","\\'")}')">${esc(k)}</button>`).join("")}</div>`:""}<div class="reason actions">${["完全不會","觀念混淆","選項搞混","看錯題目","粗心／判斷失誤","法規／年份記錯"].map(r=>`<button class="secondary" onclick="reason('${esc(x.id)}','${esc(r)}')">${r}</button>`).join("")}</div><small id="r_${esc(x.id)}"></small><div class="actions"><button class="secondary" onclick="toggleMind(this,'${esc(x.subject)}')">🧠 關鍵字心智擴散</button></div><div class="mind"></div></div>`}).join(""):"<p>本次沒有錯題。</p>")}
+          function openKeywordPageBySearch(){const q=$("reviewKeywordSearch").value.trim();if(!q){openKeywordPage("創傷知情");return}const k=allKeywords().find(x=>x===q)||allKeywords().find(x=>x.includes(q)||((KEYWORD_GLOSSARY_V1[x].alias||[]).some(a=>String(a).includes(q))));if(k)openKeywordPage(k);else{openKeywordPage("創傷知情");$("keywordSearch").value=q;searchKeywords()}}
+          '''
+
+          if '<section id="keywordPage"' not in s:
+              s = s.replace('<section id="result" class="card hidden"></section><section id="review" class="card hidden"></section>', '<section id="result" class="card hidden"></section><section id="review" class="card hidden"></section>' + page, 1)
+          if 'const KEYWORD_GLOSSARY_V1=' not in s:
+              s = s.replace('function showReview(){', glossary + '\n' + review_replacement, 1)
+              s = re.sub(r'function showReview\(\)\{.*?\}\s*function showWeak\(\)', 'function showWeak()', s, count=1, flags=re.S)
+
+          p.write_text(s, encoding='utf-8')
+
+      - name: Commit patched source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site_index.html
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+          else
+            git commit -m "Add clickable keyword glossary to mistake review"
+            git push
+          fi
