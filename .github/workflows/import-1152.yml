@@ -4,9 +4,12 @@ on:
   push:
     branches: [main]
     paths:
+      - 'build_bank_v4.py'
       - 'import_1152_official.py'
       - 'yamol_fallback.py'
       - '.github/workflows/import-1152.yml'
+  schedule:
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 permissions:
