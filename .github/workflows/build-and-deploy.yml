@@ -2,8 +2,13 @@ name: Build and deploy study site
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'data/bank.json'
+    paths:
+      - 'build_bank_v3.py'
+      - '建構銀行.py'
+      - 'site_index_v4.html'
+      - 'auth.js'
+      - 'site_enhancements.js'
+      - '.github/workflows/build-and-deploy.yml'
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * *'
