@@ -9,6 +9,7 @@ on:
       - 'site_enhancements.js'
       - 'review_order_fix.js'
       - 'review_render_fix.js'
+      - 'remove_auth_ui.js'
       - 'data/bank.json'
       - '.github/workflows/build-and-deploy.yml'
   schedule:
@@ -158,6 +159,7 @@ jobs:
           cat site_enhancements.js >> _site/index.html
           cat review_order_fix.js >> _site/index.html
           cat review_render_fix.js >> _site/index.html
+          cat remove_auth_ui.js >> _site/index.html
           cat >> _site/index.html <<'HTML'
           </script>
           HTML
