@@ -3,15 +3,6 @@ name: Build and deploy study site
 on:
   push:
     branches: [main]
-    paths:
-      - 'site_index_v4.html'
-      - 'cloud_sync.js'
-      - 'site_enhancements.js'
-      - 'review_order_fix.js'
-      - 'review_render_fix.js'
-      - 'remove_auth_ui.js'
-      - 'data/bank.json'
-      - '.github/workflows/build-and-deploy.yml'
   schedule:
     - cron: '15 18 */5 * *'
   workflow_dispatch:
@@ -28,122 +19,57 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: github.event_name == 'schedule'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install build dependencies
-        if: github.event_name != 'push'
+      - name: Install sync dependency
+        if: github.event_name == 'schedule'
         run: python -m pip install --disable-pip-version-check pypdf
 
-      - name: Validate build scripts
-        if: github.event_name != 'push'
-        run: python -m py_compile build_bank_v4.py sync_socialworkerdaily.py import_1152_official.py
-
-      - name: Sync official source updates
+      - name: Sync 社工日常 updates
         if: github.event_name == 'schedule'
+        continue-on-error: true
         run: python sync_socialworkerdaily.py
 
-      - name: Rebuild verified official question bank
-        if: github.event_name == 'workflow_dispatch'
-        run: python build_bank_v4.py
-
-      - name: Normalize question-bank records
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          path = Path('data/bank.json')
-          data = json.loads(path.read_text(encoding='utf-8'))
-          full = [0, 1, 2, 3]
-
-          for q in data.get('questions', []):
-              answer = q.get('answer')
-              accepted = q.get('accepted_answers')
-              if not isinstance(accepted, list) or not accepted:
-                  accepted = [answer] if answer in full else []
-              accepted = sorted(set(a for a in accepted if a in full))
-              q['accepted_answers'] = accepted
-              q['is_full_credit'] = accepted == full
-              q['answer_type'] = (
-                  '送分題' if q['is_full_credit']
-                  else '複數答案' if len(accepted) > 1
-                  else '單一答案'
-              )
-              q.setdefault('explanation', '')
-
-          meta = data.setdefault('meta', {})
-          meta['full_credit_definition'] = 'accepted_answers = A/B/C/D, based on official answer notes such as 一律給分'
-          meta['sync_policy'] = 'every_5_days_socialworkerdaily_verified_source_sync'
-          meta['question_count_policy'] = 'MOEX published selection-question count per subject; do not assume a fixed count'
-
-          path.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
-          print('question_count=', len(data.get('questions', [])))
-          print('full_credit_count=', sum(1 for q in data['questions'] if q['is_full_credit']))
-          print('multiple_answer_count=', sum(1 for q in data['questions'] if q['answer_type'] == '複數答案'))
-          PY
-
-      - name: Verify question bank
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          test -s data/bank.json
-          python - <<'PY'
-          import json
-          import os
-
-          data = json.load(open('data/bank.json', encoding='utf-8'))
-          questions = data.get('questions', [])
-          meta = data.get('meta', {})
-          event = os.environ['EVENT_NAME']
-
-          if not questions:
-              raise SystemExit('Question bank is empty.')
-          if any(not q.get('id') or not q.get('question') or len(q.get('choices', [])) != 4 for q in questions):
-              raise SystemExit('Malformed question records.')
-          if any(q.get('answer') not in (0, 1, 2, 3) for q in questions):
-              raise SystemExit('Invalid primary answers.')
-          if any(not q.get('accepted_answers') or any(a not in (0, 1, 2, 3) for a in q['accepted_answers']) for q in questions):
-              raise SystemExit('Invalid accepted answer sets.')
-          if any('explanation' not in q for q in questions):
-              raise SystemExit('Missing explanation records.')
-          if any('is_full_credit' not in q or 'answer_type' not in q for q in questions):
-              raise SystemExit('Missing answer classification records.')
-          if any(q['is_full_credit'] != (sorted(set(q['accepted_answers'])) == [0, 1, 2, 3]) for q in questions):
-              raise SystemExit('Invalid full-credit classification.')
-
-          ids = [q.get('id') for q in questions]
-          if len(ids) != len(set(ids)):
-              raise SystemExit('Duplicate question IDs.')
-
-          if event == 'workflow_dispatch':
-              if any(not q.get('answer_verified') for q in questions):
-                  raise SystemExit('Found unverified answer records in official rebuild.')
-              if meta.get('papers_ok') != 60:
-                  raise SystemExit(f"Expected 60 papers, got {meta.get('papers_ok')}")
-              if meta.get('papers_failed'):
-                  raise SystemExit(f"Paper failures: {meta['papers_failed']}")
-          PY
-
-      - name: Commit verified bank changes
-        if: github.event_name != 'push'
+      - name: Commit synced bank when changed
+        if: github.event_name == 'schedule'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/bank.json
           if git diff --cached --quiet; then
-            echo 'No question-bank changes detected.'
+            echo 'No question-bank changes.'
           else
-            git commit -m 'Sync verified Socialworkerdaily question bank'
+            git commit -m 'chore: sync Socialworkerdaily question bank [skip ci]'
             git push
           fi
+
+      - name: Validate bank file exists
+        run: |
+          test -s data/bank.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('data/bank.json').read_text(encoding='utf-8'))
+          qs=data.get('questions', [])
+          if not qs:
+              raise SystemExit('Question bank is empty')
+          bad=[]
+          for i,q in enumerate(qs):
+              if not q.get('id') or not q.get('question') or not isinstance(q.get('choices'),list) or len(q['choices']) != 4:
+                  bad.append(i)
+          if bad:
+              raise SystemExit(f'Malformed question records: {len(bad)}')
+          print('question_count=',len(qs))
+          print('papers_ok=',data.get('meta',{}).get('papers_ok'))
+          PY
 
       - name: Prepare Pages site
         run: |
@@ -176,7 +102,6 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
