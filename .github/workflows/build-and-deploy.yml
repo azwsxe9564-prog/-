@@ -73,7 +73,7 @@ jobs:
           mkdir -p _site/data
           cp site_index_v4.html _site/index.html
           cp data/bank.json _site/data/bank.json
-          cp cloud_sync.js site_enhancements_safe.js review_order_fix.js review_render_fix.js _site/
+          cp cloud_sync.js stable_features.js _site/
           python - <<'PY'
           import json
           from pathlib import Path
@@ -85,7 +85,7 @@ jobs:
           if '<head>' not in html or '</body>' not in html:
               raise SystemExit('Invalid base HTML document')
           html=html.replace('<head>','<head>'+bootstrap,1)
-          scripts='''\n<!-- Optional enhancements are isolated from the core application. -->\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script src="./cloud_sync.js"></script>\n<script src="./site_enhancements_safe.js"></script>\n<script src="./review_order_fix.js"></script>\n<script src="./review_render_fix.js"></script>\n'''
+          scripts='''\n<!-- Stable optional features. No mutation observers or legacy login code. -->\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script src="./cloud_sync.js"></script>\n<script src="./stable_features.js"></script>\n'''
           html=html.replace('</body>',scripts+'</body>',1)
           p.write_text(html,encoding='utf-8')
           print('embedded_question_count=',len(bank.get('questions',[])))
@@ -96,11 +96,14 @@ jobs:
         run: |
           test -s _site/index.html
           test -s _site/data/bank.json
+          test -s _site/stable_features.js
           grep -q '社工師國考' _site/index.html
           grep -q 'id="status"' _site/index.html
           grep -q '__SW_BANK__' _site/index.html
-          grep -q 'site_enhancements_safe.js' _site/index.html
-          if grep -q 'site_enhancements.js' _site/index.html; then echo 'Unsafe enhancement script still referenced'; exit 1; fi
+          grep -q 'stable_features.js' _site/index.html
+          if grep -q 'site_enhancements.js' _site/index.html; then echo 'Legacy enhancement script still referenced'; exit 1; fi
+          if grep -q 'review_render_fix.js' _site/index.html; then echo 'Legacy review renderer still referenced'; exit 1; fi
+          if grep -q 'review_order_fix.js' _site/index.html; then echo 'Legacy review order fixer still referenced'; exit 1; fi
           python - <<'PY'
           from pathlib import Path
           html=Path('_site/index.html').read_text(encoding='utf-8')
