@@ -74,8 +74,10 @@ jobs:
                   accepted=[q.get('answer')]
               if not isinstance(accepted,list) or not accepted or any(a not in (0,1,2,3) for a in accepted):
                   raise SystemExit(f'Invalid accepted answer set: {qid}')
-              if q.get('answer') not in (0,1,2,3) or q.get('answer') not in accepted:
+              if q.get('answer') not in (0,1,2,3):
                   raise SystemExit(f'Invalid primary answer: {qid}')
+              if q.get('answer') not in accepted:
+                  raise SystemExit(f'Primary answer not in accepted answer set: {qid}')
           print('question_count=',len(qs))
           print('unique_ids=',len(seen))
           PY
@@ -86,7 +88,7 @@ jobs:
           mkdir -p _site/data
           cp site_index_v4.html _site/index.html
           cp data/bank.json _site/data/bank.json
-          cp cloud_sync.js stable_features.js context_mindmap_restore.js _site/
+          cp cloud_sync.js stable_features.js continuity_mindmap.js _site/
           python - <<'PY'
           import json
           from pathlib import Path
@@ -94,11 +96,11 @@ jobs:
           html=p.read_text(encoding='utf-8')
           bank=json.loads(Path('data/bank.json').read_text(encoding='utf-8'))
           payload=json.dumps(bank,ensure_ascii=False,separators=(',',':'))
-          bootstrap='''\n<script>\nwindow.__SW_BANK__=%s;\n(function(){\n  const originalFetch=window.fetch ? window.fetch.bind(window) : null;\n  if(!originalFetch) return;\n  window.fetch=async function(input,init){\n    const url=typeof input==='string' ? input : ((input&&input.url)||'');\n    if(String(url).includes('data/bank.json')) return new Response(JSON.stringify(window.__SW_BANK__),{status:200,headers:{'Content-Type':'application/json'}});\n    return originalFetch(input,init);\n  };\n})();\n</script>\n''' % payload
+          bootstrap='''\n<script>\nwindow.__SW_BANK__=%s;\n(function(){\n  const originalFetch=window.fetch ? window.fetch.bind(window) : null;\n  if(!originalFetch) return;\n  window.fetch=async function(input,init){\n    const url=typeof input==='string' ? input : ((input&&input.url)||'');\n    if(String(url).includes('data/bank.json')){\n      return new Response(JSON.stringify(window.__SW_BANK__),{status:200,headers:{'Content-Type':'application/json'}});\n    }\n    return originalFetch(input,init);\n  };\n})();\n</script>\n''' % payload
           if '<head>' not in html or '</body>' not in html:
               raise SystemExit('Invalid base HTML document')
           html=html.replace('<head>','<head>'+bootstrap,1)
-          scripts='''\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script src="./cloud_sync.js"></script>\n<script src="./stable_features.js"></script>\n<script src="./context_mindmap_restore.js"></script>\n'''
+          scripts='''\n<!-- Stable optional features. No mutation observers or legacy login code. -->\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script src="./cloud_sync.js"></script>\n<script src="./stable_features.js"></script>\n<script src="./continuity_mindmap.js"></script>\n'''
           html=html.replace('</body>',scripts+'</body>',1)
           p.write_text(html,encoding='utf-8')
           print('embedded_question_count=',len(bank.get('questions',[])))
@@ -110,11 +112,12 @@ jobs:
           test -s _site/index.html
           test -s _site/data/bank.json
           test -s _site/stable_features.js
-          test -s _site/context_mindmap_restore.js
+          test -s _site/continuity_mindmap.js
           grep -q '社工師國考' _site/index.html
           grep -q 'id="status"' _site/index.html
           grep -q '__SW_BANK__' _site/index.html
-          grep -q 'context_mindmap_restore.js' _site/index.html
+          grep -q 'stable_features.js' _site/index.html
+          grep -q 'continuity_mindmap.js' _site/index.html
           if grep -q 'site_enhancements.js' _site/index.html; then echo 'Legacy enhancement script still referenced'; exit 1; fi
           if grep -q 'review_render_fix.js' _site/index.html; then echo 'Legacy review renderer still referenced'; exit 1; fi
           if grep -q 'review_order_fix.js' _site/index.html; then echo 'Legacy review order fixer still referenced'; exit 1; fi
