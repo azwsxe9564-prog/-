@@ -75,14 +75,24 @@ jobs:
           cp data/bank.json _site/data/bank.json
           cp cloud_sync.js site_enhancements.js review_order_fix.js review_render_fix.js _site/
           python - <<'PY'
+          import json
           from pathlib import Path
           p=Path('_site/index.html')
           html=p.read_text(encoding='utf-8')
+          bank=json.loads(Path('data/bank.json').read_text(encoding='utf-8'))
+          payload=json.dumps(bank,ensure_ascii=False,separators=(',',':'))
+
+          # The core app can now boot even if the relative bank request is
+          # unavailable. The current verified bank is embedded as a fallback.
+          bootstrap='''\n<script>\nwindow.__SW_BANK__=%s;\n(function(){\n  const originalFetch=window.fetch ? window.fetch.bind(window) : null;\n  if(!originalFetch) return;\n  window.fetch=async function(input,init){\n    const url=typeof input==='string' ? input : ((input&&input.url)||'');\n    if(String(url).includes('data/bank.json')){\n      return new Response(JSON.stringify(window.__SW_BANK__),{status:200,headers:{'Content-Type':'application/json'}});\n    }\n    return originalFetch(input,init);\n  };\n})();\n</script>\n''' % payload
+
+          if '<head>' not in html or '</body>' not in html:
+              raise SystemExit('Invalid base HTML document')
+          html=html.replace('<head>','<head>'+bootstrap,1)
           scripts='''\n<!-- Optional enhancements are isolated from the core application. -->\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script src="./cloud_sync.js"></script>\n<script src="./site_enhancements.js"></script>\n<script src="./review_order_fix.js"></script>\n<script src="./review_render_fix.js"></script>\n'''
-          if '</body>' not in html:
-              raise SystemExit('site_index_v4.html has no closing body tag')
           html=html.replace('</body>',scripts+'</body>',1)
           p.write_text(html,encoding='utf-8')
+          print('embedded_question_count=',len(bank.get('questions',[])))
           PY
           touch _site/.nojekyll
 
@@ -92,6 +102,7 @@ jobs:
           test -s _site/data/bank.json
           grep -q '社工師國考' _site/index.html
           grep -q 'id="status"' _site/index.html
+          grep -q '__SW_BANK__' _site/index.html
           python - <<'PY'
           from pathlib import Path
           html=Path('_site/index.html').read_text(encoding='utf-8')
@@ -113,5 +124,5 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v4
+        id: deployment
