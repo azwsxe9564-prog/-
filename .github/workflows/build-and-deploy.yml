@@ -50,7 +50,7 @@ jobs:
             git push
           fi
 
-      - name: Validate source bank
+      - name: Validate source bank before deployment
         run: |
           test -s site_index_v4.html
           test -s data/bank.json
@@ -61,10 +61,25 @@ jobs:
           qs=data.get('questions', [])
           if not qs:
               raise SystemExit('Question bank is empty')
+          seen=set()
           for i,q in enumerate(qs):
-              if not q.get('id') or not q.get('question') or not isinstance(q.get('choices'),list) or len(q['choices']) != 4:
-                  raise SystemExit(f'Malformed question record: {i}')
+              qid=q.get('id')
+              if not qid or qid in seen:
+                  raise SystemExit(f'Missing or duplicate question id: {qid!r}')
+              seen.add(qid)
+              if not q.get('question') or not isinstance(q.get('choices'),list) or len(q['choices']) != 4:
+                  raise SystemExit(f'Malformed question record: {qid}')
+              accepted=q.get('accepted_answers')
+              if accepted is None:
+                  accepted=[q.get('answer')]
+              if not isinstance(accepted,list) or not accepted or any(a not in (0,1,2,3) for a in accepted):
+                  raise SystemExit(f'Invalid accepted answer set: {qid}')
+              if q.get('answer') not in (0,1,2,3):
+                  raise SystemExit(f'Invalid primary answer: {qid}')
+              if q.get('answer') not in accepted:
+                  raise SystemExit(f'Primary answer not in accepted answer set: {qid}')
           print('question_count=',len(qs))
+          print('unique_ids=',len(seen))
           PY
 
       - name: Prepare Pages site
@@ -120,10 +135,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
         id: deployment
+        with:
+          artifact_name: github-pages
