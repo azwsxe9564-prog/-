@@ -17,6 +17,10 @@ def should_check(data):
         return True
 
 
+def choices_changed(old, new):
+    return old.get('choices', []) != new.get('choices', [])
+
+
 def main():
     if not DATA.exists():
         raise SystemExit('data/bank.json 不存在，無法進行安全同步。')
@@ -30,6 +34,7 @@ def main():
     changes = 0
     checked = 0
     failures = []
+    pending_updates = []
 
     for year in YEARS:
         for session in ('1', '2'):
@@ -52,33 +57,45 @@ def main():
                 if len(parsed) != expected or [q['number'] for q in parsed] != list(range(1, expected + 1)):
                     failures.append({'year': year, 'session': session, 'subject': subject, 'stage': 'question-count', 'expected': expected, 'parsed': len(parsed), 'url': url})
                     continue
+
                 for q in parsed:
                     qid = f'{year}-{session}-{subject}-{q["number"]}'
                     old = by_id.get(qid)
                     if old is None:
                         failures.append({'year': year, 'session': session, 'subject': subject, 'number': q['number'], 'stage': 'missing-id', 'url': url})
                         continue
-                    for key, value in {
-                        'question': q.get('question', ''),
-                        'choices': q.get('choices', []),
-                        'explanation': q.get('explanation', ''),
-                        'source': url,
-                        'source_name': '社工日常 socialworkerdaily',
-                        'explanation_source': '社工日常解析',
-                    }.items():
-                        if old.get(key) != value:
-                            old[key] = value
-                            changes += 1
+                    # Never silently replace choices. A changed option set can change the meaning
+                    # of the existing official answer, so the whole sync must fail safely.
+                    if choices_changed(old, q):
+                        failures.append({
+                            'year': year, 'session': session, 'subject': subject,
+                            'number': q['number'], 'stage': 'choices-changed', 'url': url,
+                            'error': '選項內容與正式題庫不同；為避免答案位移，本次不更新任何題目。'
+                        })
+                        continue
+                    pending_updates.append((old, q, url))
 
     if failures:
-        print(json.dumps({'checked_pages': checked, 'changes': changes, 'failures': failures}, ensure_ascii=False, indent=2))
+        print(json.dumps({'checked_pages': checked, 'changes': 0, 'failures': failures}, ensure_ascii=False, indent=2))
         raise SystemExit(1)
+
+    for old, q, url in pending_updates:
+        for key, value in {
+            'question': q.get('question', ''),
+            'explanation': q.get('explanation', ''),
+            'source': url,
+            'source_name': '社工日常 socialworkerdaily',
+            'explanation_source': '社工日常解析',
+        }.items():
+            if old.get(key) != value:
+                old[key] = value
+                changes += 1
 
     now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     data.setdefault('meta', {})['socialworkerdaily_sync'] = 'verified_source_sync'
     data['meta']['socialworkerdaily_sync_checked_pages'] = checked
     data['meta']['socialworkerdaily_last_checked_at'] = now
-    data['meta']['socialworkerdaily_sync_note'] = '每5天實際檢查一次；只同步社工日常題目、選項與解析；答案與官方更正仍以考選部為準。'
+    data['meta']['socialworkerdaily_sync_note'] = '每日檢查是否已滿5天；只同步題目文字與解析。若選項改變則整批停止更新，以避免既有官方答案發生位移。答案與官方更正仍以考選部為準。'
     DATA.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
     print(json.dumps({'checked_pages': checked, 'changes': changes, 'status': 'ok', 'checked_at': now}, ensure_ascii=False, indent=2))
 
