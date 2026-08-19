@@ -32,10 +32,10 @@ jobs:
         if: github.event_name == 'schedule'
         run: python -m pip install --disable-pip-version-check pypdf
 
-      - name: Sync 社工日常 updates
+      - name: Sync Socialworkerdaily updates
         if: github.event_name == 'schedule'
         continue-on-error: true
-        run: python sync_socialworkerdaily.py
+        run: python sync_socialworkerdaily.py || echo 'Socialworkerdaily sync failed; keeping current bank.'
 
       - name: Commit synced bank when changed
         if: github.event_name == 'schedule'
@@ -52,6 +52,7 @@ jobs:
 
       - name: Validate source bank
         run: |
+          test -s site_index_v4.html
           test -s data/bank.json
           python - <<'PY'
           import json
@@ -64,54 +65,33 @@ jobs:
               if not q.get('id') or not q.get('question') or not isinstance(q.get('choices'),list) or len(q['choices']) != 4:
                   raise SystemExit(f'Malformed question record: {i}')
           print('question_count=',len(qs))
-          print('papers_ok=',data.get('meta',{}).get('papers_ok'))
           PY
 
       - name: Prepare Pages site
         run: |
           rm -rf _site
           mkdir -p _site/data
+          cp site_index_v4.html _site/index.html
           cp data/bank.json _site/data/bank.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          src=Path('site_index_v4.html').read_text(encoding='utf-8')
-          bank=json.loads(Path('data/bank.json').read_text(encoding='utf-8'))
-          bank_json=json.dumps(bank, ensure_ascii=False, separators=(',', ':'))
-
-          # Keep the existing application intact, but make the question bank
-          # available inside the page as a fallback. This prevents a broken
-          # relative fetch from leaving the site permanently on "正在載入正式題庫".
-          bootstrap='''<script>\nwindow.__SW_BANK__=%s;\n(function(){\n  const nativeFetch=window.fetch.bind(window);\n  window.fetch=async function(input,init){\n    const url=typeof input==='string'?input:(input&&input.url)||'';\n    if(String(url).includes('data/bank.json')){\n      return new Response(JSON.stringify(window.__SW_BANK__),{status:200,headers:{'Content-Type':'application/json'}});\n    }\n    return nativeFetch(input,init);\n  };\n})();\n</script>\n''' % bank_json
-
-          if '<head>' not in src:
-              raise SystemExit('site_index_v4.html missing <head>')
-          src=src.replace('<head>', '<head>\n'+bootstrap, 1)
-          Path('_site/index.html').write_text(src, encoding='utf-8')
-          print('embedded_question_count=',len(bank.get('questions',[])))
-          PY
-
-          # Add optional enhancements after the main application. Each file is
-          # loaded independently so one enhancement cannot corrupt the core HTML.
+          cp cloud_sync.js site_enhancements.js review_order_fix.js review_render_fix.js _site/
           python - <<'PY'
           from pathlib import Path
           p=Path('_site/index.html')
           html=p.read_text(encoding='utf-8')
-          extra='''\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script src="cloud_sync.js"></script>\n<script src="site_enhancements.js"></script>\n<script src="review_order_fix.js"></script>\n<script src="review_render_fix.js"></script>\n<script src="remove_auth_ui.js"></script>\n'''
-          html=html.replace('</body>', extra+'</body>', 1) if '</body>' in html else html+extra
-          p.write_text(html, encoding='utf-8')
+          scripts='''\n<!-- Optional enhancements are isolated from the core application. -->\n<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>\n<script src="./cloud_sync.js"></script>\n<script src="./site_enhancements.js"></script>\n<script src="./review_order_fix.js"></script>\n<script src="./review_render_fix.js"></script>\n'''
+          if '</body>' not in html:
+              raise SystemExit('site_index_v4.html has no closing body tag')
+          html=html.replace('</body>',scripts+'</body>',1)
+          p.write_text(html,encoding='utf-8')
           PY
-
-          cp cloud_sync.js site_enhancements.js review_order_fix.js review_render_fix.js remove_auth_ui.js _site/
           touch _site/.nojekyll
 
       - name: Smoke test generated site
         run: |
           test -s _site/index.html
           test -s _site/data/bank.json
-          grep -q '__SW_BANK__' _site/index.html
           grep -q '社工師國考' _site/index.html
+          grep -q 'id="status"' _site/index.html
           python - <<'PY'
           from pathlib import Path
           html=Path('_site/index.html').read_text(encoding='utf-8')
