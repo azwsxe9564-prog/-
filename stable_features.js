@@ -5,9 +5,12 @@
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const accepted=q=>Array.isArray(q&&q.accepted_answers)&&q.accepted_answers.length?q.accepted_answers:[Number(q&&q.answer)];
   const isFull=q=>!!(q&&((q.is_full_credit===true)||accepted(q).length===4));
+  function getWrong(){try{return Array.isArray(lastWrong)?lastWrong:[]}catch(e){return[]}}
+  function getQuiz(){try{return Array.isArray(quiz)?quiz:[]}catch(e){return[]}}
+  function getAnswers(){try{return answers||{}}catch(e){return{}}}
   function review(){
     const root=document.getElementById('review'); if(!root)return;
-    const entries=Array.isArray(window.lastWrong)?window.lastWrong:[];
+    const entries=getWrong();
     if(!entries.length){root.innerHTML='<h2>錯題檢討</h2><div class="status ok">本次沒有錯題，太好了！</div>';return;}
     const html=entries.map(e=>{
       const q=e&&e.x?e.x:e, mine=e&&Object.prototype.hasOwnProperty.call(e,'a')?e.a:null;
@@ -27,17 +30,18 @@
     root.querySelectorAll('.review-explanation').forEach(x=>x.style.cssText='margin-top:12px;background:#f8faf9;border-left:5px solid #2f6f5e;padding:14px;line-height:1.9');
   }
   function chart(){
-    const r=document.getElementById('result');if(!r||r.classList.contains('hidden')||!Array.isArray(window.quiz)||!quiz.length)return;
+    const r=document.getElementById('result');if(!r||r.classList.contains('hidden'))return;const qz=getQuiz();if(!qz.length)return;
     const old=document.getElementById('stableSubjectChart');if(old)old.remove();
-    const order=['社會工作','社會工作直接服務','社會政策與社會立法','人類行為與社會環境','社會工作研究方法'];
-    const rows=order.filter(s=>quiz.some(q=>q.subject===s)).map(s=>{const qs=quiz.filter(q=>q.subject===s),c=qs.filter(q=>accepted(q).includes(Number(answers[q.id]))||isFull(q)).length,p=Math.round(c/qs.length*100),n=Math.round(p/10);return '<div style="display:grid;grid-template-columns:140px 1fr 50px;gap:8px;align-items:center;margin:8px 0"><b>'+esc(s.replace('社會工作直接服務','社會工作實務').replace('社會工作研究方法','研究法').replace('社會政策與社會立法','社會政策').replace('人類行為與社會環境','人類行為'))+'</b><span style="font-family:monospace;letter-spacing:1px">'+'█'.repeat(n)+'░'.repeat(10-n)+'</span><b>'+p+'%</b></div>'}).join('');
+    const aa=getAnswers(),order=['社會工作','社會工作直接服務','社會政策與社會立法','人類行為與社會環境','社會工作研究方法'];
+    const rows=order.filter(s=>qz.some(q=>q.subject===s)).map(s=>{const qs=qz.filter(q=>q.subject===s),c=qs.filter(q=>accepted(q).includes(Number(aa[q.id]))||isFull(q)).length,p=Math.round(c/qs.length*100),n=Math.round(p/10);return '<div style="display:grid;grid-template-columns:140px 1fr 50px;gap:8px;align-items:center;margin:8px 0"><b>'+esc(s.replace('社會工作直接服務','社會工作實務').replace('社會工作研究方法','研究法').replace('社會政策與社會立法','社會政策').replace('人類行為與社會環境','人類行為'))+'</b><span style="font-family:monospace;letter-spacing:1px">'+'█'.repeat(n)+'░'.repeat(10-n)+'</span><b>'+p+'%</b></div>'}).join('');
     if(!rows)return;const d=document.createElement('div');d.id='stableSubjectChart';d.className='status';d.style.marginTop='12px';d.innerHTML='<h3>📊 本次各科表現</h3>'+rows;r.appendChild(d);
   }
-  window.addEventListener('load',function(){
+  function install(){
     const oldReview=window.showReview;
     if(typeof oldReview==='function')window.showReview=function(){oldReview.apply(this,arguments);review();};
     const oldSubmit=window.submitQuiz;
     if(typeof oldSubmit==='function')window.submitQuiz=function(){oldSubmit.apply(this,arguments);setTimeout(chart,0);};
     const style=document.createElement('style');style.textContent='.review-question{font-size:17px;line-height:1.85;margin:10px 0 14px}.review-answer{margin-top:12px;padding:12px;background:#f3f7f5;border-radius:10px;line-height:1.8}.review-explanation small{display:block;margin-top:8px;color:#71807a}';document.head.appendChild(style);
-  });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
 })();
