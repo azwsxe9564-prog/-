@@ -91,20 +91,67 @@ def pdf_text(url):
   except Exception: return text
  return text
 
+def _pdf_text_variants(raw):
+ texts=[]
+ if fitz:
+  try:
+   doc=fitz.open(stream=raw,filetype='pdf')
+   texts.append(('fitz','\\n'.join(page.get_text('text') for page in doc)))
+   doc.close()
+  except Exception: pass
+ try:
+  texts.append(('pypdf','\\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)))
+ except Exception: pass
+ try:
+  with tempfile.TemporaryDirectory() as td:
+   pdf=Path(td)/'source.pdf'; txt=Path(td)/'source.txt'; pdf.write_bytes(raw)
+   p=subprocess.run(['pdftotext','-layout',str(pdf),str(txt)],capture_output=True,text=True,timeout=60)
+   if p.returncode==0 and txt.exists(): texts.append(('pdftotext',txt.read_text(encoding='utf-8',errors='ignore')))
+ except Exception: pass
+ return [(name,text) for name,text in texts if text]
+
 def _pdf_text_raw(raw):
- if not fitz: raise RuntimeError('PyMuPDF 未安裝')
- doc=fitz.open(stream=raw,filetype='pdf')
- try:return '\\n'.join(page.get_text('text') for page in doc)
- finally:doc.close()
+ variants=_pdf_text_variants(raw)
+ return max((text for _,text in variants),key=len,default='')
 
 def _answer_cells(raw,expected=None):
- text=_pdf_text_raw(raw)
- pos=text.find('第1題')
- if pos<0: pos=text.find('第 1 題')
- if pos<0: raise ValueError('找不到考選部答案表第1題')
- tail=text[pos:]
- letters=re.findall(r'(?m)^\s*([ABCD#])\s*$',tail)
- return letters[:expected] if expected else letters
+ variants=_pdf_text_variants(raw)
+ candidates=[]
+ for name,text in variants:
+  pos=text.find('第1題')
+  if pos<0: pos=text.find('第 1 題')
+  if pos<0: pos=text.find('標準答案')
+  if pos<0: continue
+  tail=text[pos:]
+  # 官方答案表的答案字母是獨立 token；先取前 expected 個，避免把備註中的字母混入。
+  letters=re.findall(r'(?<![A-Za-zＡ-Ｚａ-ｚ])([ABCD#])(?![A-Za-zＡ-Ｚａ-ｚ])',tail)
+  if expected and len(letters)>=expected:
+   return letters[:expected]
+  candidates.append((name,len(letters),letters))
+ detail='; '.join(f'{n}:{c}' for n,c,_ in candidates)
+ raise ValueError(f'找不到考選部答案表第1題或答案不足：{detail}')
+
+def moex_exam_id(year,session):
+ return {'110':{'1':'110030','2':'110111'},'111':{'1':'111030','2':'111110'},'112':{'1':'112030','2':'112110'},'113':{'1':'113030','2':'113100'},'114':{'1':'114030','2':'114100'},'115':{'1':'115030','2':'115100'}}[str(year)][str(session)]
+
+def discover_moex_file_url(year,session,subject,file_type='S'):
+ e=moex_exam_id(year,session); y=2000+int(year)
+ page_url=f'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e={e}&y={y}'
+ raw=fetch(page_url).decode('utf-8',errors='ignore').replace('&amp;','&')
+ pos=raw.find(subject)
+ if pos<0: raise ValueError(f'考選部查詢頁找不到科目：{subject} ({e})')
+ tail=raw[pos:pos+5000]
+ m=re.search(r'href=["\\\']([^"\\\']*wHandExamQandA_File\\.ashx[^"\\\']*[?&]t='+re.escape(file_type)+r'[^"\\\']*)',tail,re.I)
+ if not m:
+  # href 可能把 t 放在參數前段，放寬順序。
+  m=re.search(r'href=["\\\']([^"\\\']*wHandExamQandA_File\\.ashx[^"\\\']*)',tail,re.I)
+  if m and re.search(r'(?:[?&]t='+re.escape(file_type)+r'(?:&|$))',m.group(1),re.I): return m.group(1)
+  m=None
+ if not m: raise ValueError(f'考選部查詢頁找不到{file_type}連結：{subject} ({e})')
+ href=m.group(1)
+ if href.startswith('/'): return 'https://wwwq.moex.gov.tw'+href
+ if href.startswith('http'): return href
+ return 'https://wwwq.moex.gov.tw/exam/'+href.lstrip('/')
 
 def clean(s):return re.sub(r'[ \t\r\n]+',' ',s).strip()
 def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
@@ -260,21 +307,17 @@ def social_url(y,s,slug):return f'{BASE}{y}-{s}-{slug}/'
 def build_one(y,subject,slug,code):
  results=[]; failures=[]
  for session in ('1','2'):
-  answer_url=moex_url(y,session,code,'S')
   try:
-   raw_answer=fetch(answer_url)
-   if y=='115' and session=='2':
-    expected,accepted=parse_official_answers_pdf(raw_answer,code)
-   else:
-    expected,accepted=parse_official_answers(pdf_text(answer_url),code)
+   answer_url=discover_moex_file_url(y,session,subject,'S')
+   expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
    try:
-    correction=fetch(moex_url(y,session,code,'M'))
+    correction=fetch(discover_moex_file_url(y,session,subject,'M'))
     accepted.update(parse_official_correction_pdf(correction,code))
    except Exception:
     pass
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
   if y=='115' and session=='2':
-   source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
+   source_url=discover_moex_file_url(y,session,subject,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
    try:qs=parse_questions(pdf_text(source_url),expected,official_pdf=True)
    except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-question','url':source_url,'error':str(e)});continue
   else:
