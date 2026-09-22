@@ -1,4 +1,5 @@
 name: Build and deploy study site
+# Full historical verification trigger commit
 
 on:
   push:
