@@ -216,7 +216,7 @@ def parse_questions(text, expected_count=None, official_pdf=False):
   n=int(m.group(1))
   if n<1 or (expected_count and n>expected_count):continue
   end=starts[i+1].start() if i+1<len(starts) else len(text); block=text[m.end():end]
-  marks=list(re.finditer(r'(?m)^\s*[（(]?\s*([ABCDＡＢＣＤ])\s*[)）.．、:：]?\s+',block))
+  marks=list(re.finditer(r'(?m)^\s*[（(]?\s*([ABCDＡＢＣＤ])\s*[)）.．、:：]?\s*',block))
   if len(marks)<4:continue
   chosen=None
   for k in range(len(marks)-3):
