@@ -208,7 +208,9 @@ def official_block(text,code):
  end=hit.end()+nxt.start() if nxt else len(text)
  return text[start:end]
 
-def moex_url(year,session,subject_code,file_type):return f'{MOEX}?c={MOEX_C}&code={exam_code(year,session)}&q=1&s={subject_code}&t={file_type}'
+MOEX_S={'1103':'0301','2103':'0302','3103':'0303','4103':'0304','5103':'0305'}
+def moex_url(year,session,subject_code,file_type):
+ return f'{MOEX}?c={MOEX_C}&code={exam_code(year,session)}&q=1&s={MOEX_S[str(subject_code)]}&t={file_type}'
 
 def parse_official_answers(text,code):
  block=official_block(text,code)
