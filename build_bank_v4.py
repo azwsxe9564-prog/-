@@ -313,15 +313,22 @@ def parse_official_answers_pdf(raw,code):
  return expected,accepted
 
 def parse_official_correction_pdf(raw,code):
- text=_pdf_text_raw(raw).replace('\n',' ')
+ text=_pdf_text_raw(raw)
+ if not text.strip():
+  raise ValueError(f'考選部 {code} 更正答案 PDF 無法擷取文字，無法確認更正內容')
+ flat=re.sub(r'\\s+',' ',text)
  out={}
- for m in re.finditer(r'第\s*(\d+)\s*題\s*答\s*([ABCDＡＢＣＤ]+(?:\s*或\s*[ABCDＡＢＣＤ]+)+)\s*者均給分',text):
+ for m in re.finditer(r'第\\s*(\\d+)\\s*題\\s*答\\s*([ABCDＡＢＣＤ]+(?:\\s*或\\s*[ABCDＡＢＣＤ]+)+)\\s*者均給分',flat):
   vals=[]
-  for token in re.split(r'\s*或\s*',norm(m.group(2))):
+  for token in re.split(r'\\s*或\\s*',norm(m.group(2))):
    vals.extend('ABCD'.index(ch) for ch in token if ch in 'ABCD')
   if vals: out[int(m.group(1))]=sorted(set(vals))
- for m in re.finditer(r'第\s*(\d+)\s*題[^。；;]*?一律給分',text):
+ for m in re.finditer(r'第\\s*(\\d+)\\s*題[^。；;]*?一律給分',flat):
   out[int(m.group(1))]=[0,1,2,3]
+ # M 檔若明確標示「標準答案更正」，卻完全沒有解析出任何更正項目，
+ # 視為格式改變或解析失敗，而不是默默忽略。
+ if '標準答案更正' in flat and not out:
+  raise ValueError(f'考選部 {code} 更正答案 PDF 顯示有更正，但未解析出任何更正題目')
  return out
 
 def exam_code(y,s):return {'110':{'1':'110030','2':'110111'},'111':{'1':'111030','2':'111110'},'112':{'1':'112030','2':'112110'},'113':{'1':'113030','2':'113100'},'114':{'1':'114030','2':'114100'},'115':{'1':'115030','2':'115100'}}[str(y)][str(s)]
@@ -334,11 +341,22 @@ def build_one(y,subject,slug,code):
   try:
    answer_url=moex_url(y,session,code,'S')
    expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
+   correction_url=moex_url(y,session,code,'M')
    try:
-    correction=fetch(moex_url(y,session,code,'M'))
-    accepted.update(parse_official_correction_pdf(correction,code))
-   except Exception:
-    pass
+    correction=fetch(correction_url)
+   except Exception as e:
+    # 部分歷屆試卷沒有「答案更正」檔；只有 404/410 視為「無更正檔」。
+    # 其他抓取錯誤必須讓驗證失敗，避免把官方同步失敗默默吞掉。
+    import urllib.error
+    if isinstance(e, urllib.error.HTTPError) and e.code in (404,410):
+     correction=None
+    else:
+     raise RuntimeError(f'考選部更正答案檔抓取失敗：{correction_url}：{e}') from e
+   if correction is not None:
+    try:
+     accepted.update(parse_official_correction_pdf(correction,code))
+    except Exception as e:
+     raise RuntimeError(f'考選部更正答案檔解析失敗：{correction_url}：{e}') from e
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
   if y=='115' and session=='2':
    source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
@@ -370,7 +388,7 @@ def main():
  papers=sorted({(x['year'],x['session'],x['subject']) for x in all_items}); counts={}
  for q in all_items:
   k=f"{q['year']}-{q['session']}-{q['subject']}";counts[k]=counts.get(k,0)+1
- meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.1 + MOEX-official-count-and-pdf-parser-with-robust-code-detection'}
+ meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.1 + MOEX-official-count-and-pdf-parser-with-robust-code-detection + strict-correction-verification'}
  (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
  print(json.dumps(meta,ensure_ascii=False,indent=2))
  if len(papers)!=60 or failures:raise SystemExit(1)
