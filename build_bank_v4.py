@@ -95,19 +95,25 @@ def official_block(text,code):
  # 先鎖定「試題代號／代號」附近的代碼，再退回一般數字命中。
  text=text.replace('\r','\n')
  code_digits=re.escape(str(code))
- spaced_code=r'\\s*'.join(re.escape(ch) for ch in str(code))
- labeled=re.compile(r'(?:試題代號|代號)\\s*[：:（(]?(?:\\s*)'+spaced_code+r'(?:\\s*[)）])?',re.I)
+ spaced_code=r'\s*'.join(re.escape(ch) for ch in str(code))
+ labeled=re.compile(r'(?:試題代號|代號)\s*[：:（(]?\s*'+spaced_code+r'\s*[)）]?',re.I)
  labeled_hits=list(labeled.finditer(text))
  if labeled_hits:
   hit=labeled_hits[0]
  else:
-  hits=list(re.finditer(r'(?<!\\d)'+code_digits+r'(?!\\d)',text))
+  hits=list(re.finditer(r'(?<!\d)'+code_digits+r'(?!\d)',text))
   if not hits:
    # 最後再容許純數字也被 PDF 字型拆成空白分隔的情況。
-   hits=list(re.finditer(r'(?<!\\d)'+spaced_code+r'(?!\\d)',text))
+   hits=list(re.finditer(r'(?<!\d)'+spaced_code+r'(?!\d)',text))
   if not hits:raise ValueError(f'找不到考選部科目代碼 {code}')
-  # 優先找最接近「代號」的命中，避免誤抓答案數字。
-  ranked=sorted(hits,key=lambda h:(0 if re.search(r'代號\\s*[：:]?\\s*
+  ranked=sorted(hits,key=lambda h:(0 if re.search(r'代號\s*[：:]?\s*$',text[max(0,h.start()-20):h.start()]) else 1,h.start()))
+  hit=ranked[0]
+ start=hit.start()
+ prev=list(re.finditer(r'(?m)^\s*(?:代號\s*[：:]?\s*)?\d{4,6}\s*$',text[:start]))
+ if prev:start=prev[-1].start()
+ nxt=re.search(r'(?m)^\s*(?:代號\s*[：:]?\s*)?\d{4,6}\s*$',text[hit.end():])
+ end=hit.end()+nxt.start() if nxt else len(text)
+ return text[start:end]
 
 def moex_url(year,session,subject_code,file_type):return f'{MOEX}?c={MOEX_C}&code={exam_code(year,session)}&q=1&s={subject_code}&t={file_type}'
 
