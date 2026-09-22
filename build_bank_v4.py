@@ -260,7 +260,11 @@ def build_one(y,subject,slug,code):
  for session in ('1','2'):
   answer_url=moex_url(y,session,code,'S')
   try:
-   expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
+   raw_answer=fetch(answer_url)
+   if y=='115' and session=='2':
+    expected,accepted=parse_official_answers_pdf(raw_answer,code)
+   else:
+    expected,accepted=parse_official_answers(pdf_text(answer_url),code)
    try:
     correction=fetch(moex_url(y,session,code,'M'))
     accepted.update(parse_official_correction_pdf(correction,code))
