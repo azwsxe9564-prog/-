@@ -1,5 +1,4 @@
 import html
-import os
 import io
 import json
 import re
@@ -28,7 +27,6 @@ SUBJECTS={
 }
 # 考選部頁面的 s 參數是科目序號（0301~0305），不是試題代號（1103~5103）。
 MOEX_S={'1103':'0301','2103':'0302','3103':'0303','4103':'0304','5103':'0305'}
-DEBUG_CELLS={}
 
 
 def curl(url, output, cookie_jar=None):
@@ -81,33 +79,7 @@ def pdf_text(url):
 
 def answer_data(subject_code, answer_url):
     raw=fetch_pdf(answer_url)
-    try:
-        expected,accepted=b.parse_official_answers_pdf(raw,subject_code)
-    except Exception as e:
-        debug={
-            'subject_code':subject_code,
-            'answer_url':answer_url,
-            'error':repr(e),
-            'raw_bytes':len(raw),
-            'fitz_available':bool(getattr(b,'fitz',None)),
-        }
-        try:
-            debug['fallback_cells']=b._answer_cells(raw,None)
-        except Exception as e2:
-            debug['fallback_cells_error']=repr(e2)
-        try:
-            debug['pdf_text_head']=b._pdf_text_raw(raw)[:2000]
-        except Exception as e3:
-            debug['pdf_text_error']=repr(e3)
-        Path('data/debug_answer_parser.json').write_text(json.dumps(debug,ensure_ascii=False,indent=2),encoding='utf-8')
-        raise
-    try:
-        debug_cells=b._answer_cells(raw,expected)
-        DEBUG_CELLS[subject_code]=debug_cells
-        debug_path=Path('data/debug_answer_parser.json')
-        debug_path.write_text(json.dumps({'subject_code':subject_code,'expected':expected,'cells':debug_cells,'accepted':accepted},ensure_ascii=False,indent=2),encoding='utf-8')
-    except Exception:
-        pass
+    expected,accepted=b.parse_official_answers_pdf(raw,subject_code)
     try:
         correction_url=answer_url.replace('&t=S','&t=M')
         correction=fetch_pdf(correction_url)
@@ -115,7 +87,6 @@ def answer_data(subject_code, answer_url):
     except Exception:
         pass
     return expected,accepted
-
 
 def question_data(subject, expected, question_url=None):
     # 官方試題 PDF 優先；若 MOEX 沒有可用連結或 PDF 暫時失敗，改用阿摩公開 115-2 試卷。
@@ -140,8 +111,6 @@ def question_data(subject, expected, question_url=None):
 
 
 def should_check(data):
-    if True:
-        return True
     last = data.get('meta', {}).get('official_115_2_last_checked_at')
     if not last:
         return True
@@ -189,7 +158,6 @@ def main():
     ids=[q['id'] for q in merged]
     if len(ids)!=len(set(ids)): raise RuntimeError('題目 ID 重複')
     meta=data.setdefault('meta',{})
-    meta['debug_official_answer_cells_115_2']=DEBUG_CELLS
     meta['official_115_2_verified']=True
     meta['official_115_2_last_checked_at']=datetime.now(timezone.utc).isoformat().replace('+00:00','Z')
     meta['official_115_2_sync_note']='每5天重新檢查考選部115-2試題與標準答案；若官方資料變更則更新題庫，若來源暫時失敗則本次部署停止並保留既有線上版本。'
