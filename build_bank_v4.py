@@ -346,11 +346,11 @@ def build_one(y,subject,slug,code):
  for session in ('1','2'):
   answer_url=''
   try:
-   answer_url=moex_url(y,session,code,'S')
+   answer_url=discover_moex_file_url(y,session,subject,'S')
    expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
    official_original_answers={k:list(v) for k,v in accepted.items()}
    correction_records={}
-   correction_url=moex_url(y,session,code,'M')
+   correction_url=discover_moex_file_url(y,session,subject,'M')
    try:
     correction=fetch(correction_url)
    except Exception as e:
@@ -371,7 +371,7 @@ def build_one(y,subject,slug,code):
      raise RuntimeError(f'考選部更正答案檔解析失敗：{correction_url}：{e}') from e
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
   if y=='115' and session=='2':
-   source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
+   source_url=discover_moex_file_url(y,session,subject,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
    try:qs=parse_questions(pdf_text(source_url),expected,official_pdf=True)
    except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-question','url':source_url,'error':str(e)});continue
   else:
@@ -400,7 +400,7 @@ def main():
  papers=sorted({(x['year'],x['session'],x['subject']) for x in all_items}); counts={}
  for q in all_items:
   k=f"{q['year']}-{q['session']}-{q['subject']}";counts[k]=counts.get(k,0)+1
- meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','answer_provenance':'每題答案直接取自考選部標準答案；更正題另保存原答案、最終答案與官方更正來源','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.2 + year-aware-MOEX-subject-index-mapping + MOEX-official-count-and-pdf-parser + strict-correction-verification'}
+ meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','answer_provenance':'每題答案直接取自考選部標準答案；更正題另保存原答案、最終答案與官方更正來源','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.2 + discovered-MOEX-file-links + MOEX-official-count-and-pdf-parser + strict-correction-verification'}
  (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
  print(json.dumps(meta,ensure_ascii=False,indent=2))
  if len(papers)!=60 or failures:raise SystemExit(1)
