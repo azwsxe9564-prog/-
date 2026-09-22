@@ -39,6 +39,8 @@ jobs:
       - name: Verify 115-2 official exam updates (actual check every 5 days)
         if: github.event_name == 'schedule' || github.event_name == 'push'
         continue-on-error: true
+        env:
+          FORCE_OFFICIAL_115_2: '1'
         run: python import_1152_official.py
 
       - name: Commit synced and verified bank when changed
