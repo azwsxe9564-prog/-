@@ -36,27 +36,8 @@ jobs:
         continue-on-error: true
         run: python sync_socialworkerdaily.py || echo 'Socialworkerdaily sync failed; keeping current bank.'
 
-      - name: Diagnose build_bank_v4 compile
-        run: |
-          python - <<'PY'
-          import py_compile, traceback
-          from pathlib import Path
-          try:
-              py_compile.compile('build_bank_v4.py', doraise=True)
-              Path('data/compile_error.txt').write_text('OK', encoding='utf-8')
-          except Exception:
-              Path('data/compile_error.txt').write_text(traceback.format_exc(), encoding='utf-8')
-          PY
-
-      - name: Compile import_1152_official
-        continue-on-error: true
-        run: python -m py_compile import_1152_official.py
-
       - name: Verify 115-2 official exam updates (actual check every 5 days)
         if: github.event_name == 'schedule' || github.event_name == 'push'
-        continue-on-error: true
-        env:
-          FORCE_OFFICIAL_115_2: '1'
         run: python import_1152_official.py
 
       - name: Commit synced and verified bank when changed
@@ -65,8 +46,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/bank.json
-          if [ -f data/debug_answer_parser.json ]; then git add -f data/debug_answer_parser.json; fi
-          if [ -f data/compile_error.txt ]; then git add -f data/compile_error.txt; fi
           if git diff --cached --quiet; then
             echo 'No question-bank changes.'
           else
