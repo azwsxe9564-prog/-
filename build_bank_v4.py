@@ -272,9 +272,13 @@ def official_block(text,code):
  end=hit.end()+nxt.start() if nxt else len(text)
  return text[start:end]
 
-MOEX_S={'1103':'0301','2103':'0302','3103':'0303','4103':'0304','5103':'0305'}
+MOEX_S_INDEX={'1103':1,'2103':2,'3103':3,'4103':4,'5103':5}
 def moex_url(year,session,subject_code,file_type):
- return f'{MOEX}?c={MOEX_C}&code={exam_code(year,session)}&q=1&s={MOEX_S[str(subject_code)]}&t={file_type}'
+ year=str(year)
+ c='105' if year=='111' else '103'
+ prefix='04' if year=='111' else '03'
+ s=f"{prefix}{MOEX_S_INDEX[str(subject_code)]:02d}"
+ return f'{MOEX}?c={c}&code={exam_code(year,session)}&q=1&s={s}&t={file_type}'
 
 def parse_official_answers(text,code):
  block=official_block(text,code)
@@ -318,7 +322,7 @@ def parse_official_correction_pdf(raw,code):
   out[int(m.group(1))]=[0,1,2,3]
  return out
 
-def exam_code(y,s):return f'{y}{"030" if s=="1" else "100"}'
+def exam_code(y,s):return {'110':{'1':'110030','2':'110111'},'111':{'1':'111030','2':'111110'},'112':{'1':'112030','2':'112110'},'113':{'1':'113030','2':'113100'},'114':{'1':'114030','2':'114100'},'115':{'1':'115030','2':'115100'}}[str(y)][str(s)]
 def social_url(y,s,slug):return f'{BASE}{y}-{s}-{slug}/'
 
 def build_one(y,subject,slug,code):
@@ -326,16 +330,16 @@ def build_one(y,subject,slug,code):
  for session in ('1','2'):
   answer_url=''
   try:
-   answer_url=discover_moex_file_url(y,session,subject,'S')
+   answer_url=moex_url(y,session,code,'S')
    expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
    try:
-    correction=fetch(discover_moex_file_url(y,session,subject,'M'))
+    correction=fetch(moex_url(y,session,code,'M'))
     accepted.update(parse_official_correction_pdf(correction,code))
    except Exception:
     pass
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
   if y=='115' and session=='2':
-   source_url=discover_moex_file_url(y,session,subject,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
+   source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
    try:qs=parse_questions(pdf_text(source_url),expected,official_pdf=True)
    except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-question','url':source_url,'error':str(e)});continue
   else:
