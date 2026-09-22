@@ -49,7 +49,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/bank.json
-          if [ -f data/debug_answer_parser.json ]; then git add data/debug_answer_parser.json; fi
+          if [ -f data/debug_answer_parser.json ]; then git add -f data/debug_answer_parser.json; fi
           if git diff --cached --quiet; then
             echo 'No question-bank changes.'
           else
