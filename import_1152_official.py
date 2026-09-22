@@ -100,7 +100,11 @@ def question_data(subject, expected, question_url=None):
     official_error=None
     if question_url:
         try:
-            qs=b.parse_questions(pdf_text(question_url),expected,official_pdf=True)
+            raw_text=pdf_text(question_url)
+            if subject=='社會工作':
+                print('DEBUG official pdf text_len=',len(raw_text),'glyphs=',sum(raw_text.count(x) for x in ''),'head=',repr(raw_text[:1200]))
+            qs=b.parse_questions(raw_text,expected,official_pdf=True)
+            print('DEBUG parsed',subject,len(qs))
             if len(qs)==expected and [q['number'] for q in qs]==list(range(1,expected+1)):
                 return qs,question_url,'考選部官方考畢試題'
             official_error=f'官方 PDF 題數解析失敗：實得 {len(qs)} 題'
