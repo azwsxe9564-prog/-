@@ -287,7 +287,11 @@ def build_one(y,subject,slug,code):
  results=[]; failures=[]
  for session in ('1','2'):
   answer_url=moex_url(y,session,code,'S')
-  try:\n   expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)\n   try:\n    correction=fetch(moex_url(y,session,code,'M'))\n    accepted.update(parse_official_correction_pdf(correction,code))\n   except Exception:\n    pass
+  try:
+   expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)\n   try:
+    correction=fetch(moex_url(y,session,code,'M'))\n    accepted.update(parse_official_correction_pdf(correction,code))
+   except Exception:
+    pass
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
   if y=='115' and session=='2':
    source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
