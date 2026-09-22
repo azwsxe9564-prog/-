@@ -161,19 +161,15 @@ def discover_moex_file_url(year,session,subject,file_type='S'):
  raw=fetch(page_url).decode('utf-8',errors='ignore').replace('&amp;','&')
  pos=raw.find(subject)
  if pos<0: raise ValueError(f'考選部查詢頁找不到科目：{subject} ({e})')
- tail=raw[pos:pos+5000]
- m=re.search(r'href=["\\\']([^"\\\']*wHandExamQandA_File\\.ashx[^"\\\']*[?&]t='+re.escape(file_type)+r'[^"\\\']*)',tail,re.I)
- if not m:
-  # href 可能把 t 放在參數前段，放寬順序。
-  m=re.search(r'href=["\\\']([^"\\\']*wHandExamQandA_File\\.ashx[^"\\\']*)',tail,re.I)
-  if m and re.search(r'(?:[?&]t='+re.escape(file_type)+r'(?:&|$))',m.group(1),re.I): return m.group(1)
-  m=None
- if not m: raise ValueError(f'考選部查詢頁找不到{file_type}連結：{subject} ({e})')
- href=m.group(1)
- if href.startswith('/'): return 'https://wwwq.moex.gov.tw'+href
- if href.startswith('http'): return href
- return 'https://wwwq.moex.gov.tw/exam/'+href.lstrip('/')
-
+ # 從該科目名稱之後抓所有考選部檔案連結，再依 t=Q/S/M 選擇。
+ tail=raw[pos:pos+8000]
+ links=re.findall(r'href=["\\']([^"\\']*wHandExamQandA_File\\.ashx[^"\\']*)["\\']',tail,re.I)
+ for href in links:
+  if re.search(r'(?:[?&]t=)'+re.escape(file_type)+r'(?:&|$)',href,re.I):
+   if href.startswith('/'): return 'https://wwwq.moex.gov.tw'+href
+   if href.startswith('http'): return href
+   return 'https://wwwq.moex.gov.tw/exam/'+href.lstrip('/')
+ raise ValueError(f'考選部查詢頁找不到{file_type}連結：{subject} ({e})')
 def clean(s):return re.sub(r'[ \t\r\n]+',' ',s).strip()
 def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
 
@@ -330,16 +326,16 @@ def build_one(y,subject,slug,code):
  for session in ('1','2'):
   answer_url=''
   try:
-   answer_url=moex_url(y,session,code,'S')
+   answer_url=discover_moex_file_url(y,session,subject,'S')
    expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
    try:
-    correction=fetch(moex_url(y,session,code,'M'))
+    correction=fetch(discover_moex_file_url(y,session,subject,'M'))
     accepted.update(parse_official_correction_pdf(correction,code))
    except Exception:
     pass
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
   if y=='115' and session=='2':
-   source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
+   source_url=discover_moex_file_url(y,session,subject,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
    try:qs=parse_questions(pdf_text(source_url),expected,official_pdf=True)
    except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-question','url':source_url,'error':str(e)});continue
   else:
