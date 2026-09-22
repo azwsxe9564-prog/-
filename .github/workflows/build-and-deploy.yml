@@ -1,6 +1,6 @@
 name: Build and deploy study site
 # Full historical verification trigger commit
-# [full-verify] execute complete 110-115 official answer verification
+# [full-verify] rerun complete 110-115 verification after heading parser fix
 
 on:
   push:
