@@ -275,8 +275,8 @@ def official_block(text,code):
 MOEX_S_INDEX={'1103':1,'2103':2,'3103':3,'4103':4,'5103':5}
 def moex_url(year,session,subject_code,file_type):
  year=str(year)
- c='105' if year=='111' else '103'
- prefix='04' if year=='111' else '03'
+ c='105' if year in {'110','111'} else '103'
+ prefix='04' if year in {'110','111'} else '03'
  s=f"{prefix}{MOEX_S_INDEX[str(subject_code)]:02d}"
  return f'{MOEX}?c={c}&code={exam_code(year,session)}&q=1&s={s}&t={file_type}'
 
