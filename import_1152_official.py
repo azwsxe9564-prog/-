@@ -25,6 +25,8 @@ SUBJECTS={
     '人類行為與社會環境':'4103',
     '社會工作研究方法':'5103',
 }
+# 考選部頁面的 s 參數是科目序號（0301~0305），不是試題代號（1103~5103）。
+MOEX_S={'1103':'0301','2103':'0302','3103':'0303','4103':'0304','5103':'0305'}
 
 
 def curl(url, output, cookie_jar=None):
@@ -40,26 +42,13 @@ def curl(url, output, cookie_jar=None):
 
 
 def discover_official_links():
-    with tempfile.TemporaryDirectory() as td:
-        td=Path(td); page=td/'exam.html'; cookies=td/'cookies.txt'
-        p=curl(EXAM_PAGE,page,cookies)
-        if p.returncode!=0: raise RuntimeError(f'MOEX exam page failed: {(p.stderr or "").strip()}')
-        raw=page.read_text(encoding='utf-8',errors='ignore')
-        links=[]
-        for m in re.finditer(r'''href\s*=\s*["']([^"']*wHandExamQandA_File\.ashx[^"']*)["']''',raw,re.I):
-            href=html.unescape(m.group(1)).replace('&amp;','&')
-            links.append(urljoin(EXAM_PAGE,href))
-        result={}
-        for subject,code in SUBJECTS.items():
-            for typ in ('Q','S'):
-                candidates=[]
-                for u in links:
-                    q=parse_qs(urlparse(u).query)
-                    if q.get('code',[''])[0]==EXAM_CODE and q.get('s',[''])[0]==code and q.get('t',[''])[0]==typ:
-                        candidates.append(u)
-                if candidates: result[(subject,typ)]=candidates[0]
-        return result
-
+    # 直接依115-2官方頁面上的社工師五科序號建立連結，避免 s 參數與試題代號混淆。
+    result={}
+    for subject,code in SUBJECTS.items():
+        s=MOEX_S[code]
+        for typ in ('Q','S'):
+            result[(subject,typ)]=f'{MOEX}?c=103&code={EXAM_CODE}&q=1&s={s}&t={typ}'
+    return result
 
 def fetch_pdf(url):
     last=''
@@ -100,11 +89,7 @@ def question_data(subject, expected, question_url=None):
     official_error=None
     if question_url:
         try:
-            raw_text=pdf_text(question_url)
-            if subject=='社會工作':
-                print('DEBUG official pdf text_len=',len(raw_text),'glyphs=',sum(raw_text.count(x) for x in ''),'head=',repr(raw_text[:1200]))
-            qs=b.parse_questions(raw_text,expected,official_pdf=True)
-            print('DEBUG parsed',subject,len(qs))
+            qs=b.parse_questions(pdf_text(question_url),expected,official_pdf=True)
             if len(qs)==expected and [q['number'] for q in qs]==list(range(1,expected+1)):
                 return qs,question_url,'考選部官方考畢試題'
             official_error=f'官方 PDF 題數解析失敗：實得 {len(qs)} 題'
