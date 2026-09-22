@@ -210,7 +210,7 @@ def parse_questions(text, expected_count=None, official_pdf=False):
   unique={q['number']:q for q in out}
   return [unique[n] for n in sorted(unique)]
 
- starts=list(re.finditer(r'(?m)^\s*(?:#{1,6}\s*)?(\d{1,3})\s*[\.\、．)）]\s*',text))
+ starts=list(re.finditer(r'(?m)^\s*(?:#{1,6}\s*)?(\d{1,3})(?:\s*[\.\、．)）]\s*|(?=[\u4e00-\u9fff]))',text))
  out=[]
  for i,m in enumerate(starts):
   n=int(m.group(1))
