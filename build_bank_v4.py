@@ -127,6 +127,16 @@ def _answer_cells(raw,expected=None):
   letters=re.findall(r'(?<![A-Za-zＡ-Ｚａ-ｚ])([ABCD#])(?![A-Za-zＡ-Ｚａ-ｚ])',tail)
   if expected and len(letters)>=expected:
    return letters[:expected]
+  # 舊版考選部答案表常以「01 - 10 CBBBDADADD」分段列出，不含「第1題」文字。
+  chunks=[]
+  for text2 in [text]:
+   for m in re.finditer(r'(?m)\\b(\\d{1,2})\\s*[-－~～]\\s*(\\d{1,3})\\s+([ABCD]{10})\\b',text2):
+    a,b,seq=int(m.group(1)),int(m.group(2)),m.group(3)
+    if b-a+1==10: chunks.append((a,seq))
+  if chunks:
+   flat=[]
+   for a,seq in sorted(chunks): flat.extend(seq)
+   if expected and len(flat)>=expected: return flat[:expected]
   candidates.append((name,len(letters),letters))
  detail='; '.join(f'{n}:{c}' for n,c,_ in candidates)
  raise ValueError(f'找不到考選部答案表第1題或答案不足：{detail}')
