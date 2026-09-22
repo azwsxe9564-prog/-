@@ -9,6 +9,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 from pathlib import Path
 from pypdf import PdfReader
+try:
+ import fitz
+except Exception:
+ fitz=None
 
 BASE='https://socialworkerdaily.com/'
 MOEX='https://wwwq.moex.gov.tw/exam/wHandExamQandA_File.ashx'
@@ -59,6 +63,13 @@ def html_text(raw):
 def pdf_text(url):
  raw=fetch(url)
  texts=[]
+ try:
+  if fitz:
+   doc=fitz.open(stream=raw,filetype='pdf')
+   texts.append('\n'.join(page.get_text('text') for page in doc))
+   doc.close()
+ except Exception:
+  pass
  try:
   texts.append('\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages))
  except Exception:
