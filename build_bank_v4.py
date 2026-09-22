@@ -3,6 +3,8 @@ import json
 import re
 import time
 import urllib.request
+import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 from pathlib import Path
@@ -56,9 +58,28 @@ def html_text(raw):
  p=Extractor(); p.feed(raw.decode('utf-8',errors='ignore')); return p.text()
 def pdf_text(url):
  raw=fetch(url)
- try:return '\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)
+ texts=[]
+ try:
+  texts.append('\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages))
  except Exception:
-  raw=fetch(url,retries=3); return '\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)
+  pass
+ # 考選部部分 PDF 的文字層在 pypdf 下可能不完整；以系統 pdftotext 交叉取較完整的文字。
+ try:
+  with tempfile.TemporaryDirectory() as td:
+   pdf=Path(td)/'source.pdf'; txt=Path(td)/'source.txt'
+   pdf.write_bytes(raw)
+   p=subprocess.run(['pdftotext','-layout',str(pdf),str(txt)],capture_output=True,text=True,timeout=60)
+   if p.returncode==0 and txt.exists():
+    texts.append(txt.read_text(encoding='utf-8',errors='ignore'))
+ except Exception:
+  pass
+ text=max(texts,key=len,default='')
+ if len(text)<200:
+  raw=fetch(url,retries=3)
+  try:return '\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)
+  except Exception: return text
+ return text
+
 def clean(s):return re.sub(r'[ \t\r\n]+',' ',s).strip()
 def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
 
