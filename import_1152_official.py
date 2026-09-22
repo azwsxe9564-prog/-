@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import tempfile
+from datetime import datetime, timezone, timedelta
 import time
 from pathlib import Path
 from urllib.parse import urljoin, urlparse, parse_qs
@@ -115,10 +116,24 @@ def question_data(subject, expected, question_url=None):
         raise RuntimeError(f'官方試題來源失敗：{official_error or "無官方 PDF 連結"}；阿摩備援失敗：{yamol_error}')
 
 
+def should_check(data):
+    last = data.get('meta', {}).get('official_115_2_last_checked_at')
+    if not last:
+        return True
+    try:
+        dt = datetime.fromisoformat(last.replace('Z', '+00:00'))
+        return datetime.now(timezone.utc) - dt >= timedelta(days=5)
+    except Exception:
+        return True
+
+
 def main():
     links=discover_official_links()
     bank_path=Path('data/bank.json')
     data=json.loads(bank_path.read_text(encoding='utf-8'))
+    if not should_check(data):
+        print(json.dumps({'status':'skip','reason':'距離上次115-2官方驗證未滿5天'},ensure_ascii=False))
+        return
     old=[q for q in data.get('questions',[]) if not (q.get('year')==YEAR and q.get('session')==SESSION)]
     new=[]; report=[]
     for subject,code in SUBJECTS.items():
@@ -150,6 +165,8 @@ def main():
     if len(ids)!=len(set(ids)): raise RuntimeError('題目 ID 重複')
     meta=data.setdefault('meta',{})
     meta['official_115_2_verified']=True
+    meta['official_115_2_last_checked_at']=datetime.now(timezone.utc).isoformat().replace('+00:00','Z')
+    meta['official_115_2_sync_note']='每5天重新檢查考選部115-2試題與標準答案；若官方資料變更則更新題庫，若來源暫時失敗則本次部署停止並保留既有線上版本。'
     meta['official_115_2_report']=report
     meta['official_question_count_authority']='考選部各科公布題數'
     meta['answer_authority']='考選部測驗式試題標準答案'
