@@ -65,7 +65,7 @@ def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upp
 def parse_questions(text, expected_count=None, official_pdf=False):
  if official_pdf:
   text=text.replace('\r','\n').replace('','A ').replace('','B ').replace('','C ').replace('','D ')
-  starts=list(re.finditer(r'(?m)^\s*(\d{1,3})\s*$',text))
+  starts=list(re.finditer(r'(?m)^\s*(\d{1,3})\s+(?=\S)',text))
  else: starts=list(re.finditer(r'(?m)^\s*(?:#{1,6}\s*)?(\d{1,3})\s*[\.、．)）]\s*',text))
  out=[]
  for i,m in enumerate(starts):
