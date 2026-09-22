@@ -92,7 +92,7 @@ def parse_questions(text, expected_count=None, official_pdf=False):
 
 def official_block(text,code):
  # PDF 文字層可能把試題代號拆成「1 1 0 3」，也可能保留為1103；
- # 先鎖定「試題代號／代號」附近的代碼，再退回一般數字命中。
+ # 先鎖定「試題代號／代號」附近的代碼，再以科目名稱作官方 PDF 的備援識別。
  text=text.replace('\r','\n')
  code_digits=re.escape(str(code))
  spaced_code=r'\s*'.join(re.escape(ch) for ch in str(code))
@@ -103,20 +103,27 @@ def official_block(text,code):
  else:
   hits=list(re.finditer(r'(?<!\d)'+code_digits+r'(?!\d)',text))
   if not hits:
-   # 最後再容許純數字也被 PDF 字型拆成空白分隔的情況。
    hits=list(re.finditer(r'(?<!\d)'+spaced_code+r'(?!\d)',text))
-  if not hits:
+  if hits:
+   ranked=sorted(hits,key=lambda h:(0 if re.search(r'代號\s*[：:]?\s*$',text[max(0,h.start()-20):h.start()]) else 1,h.start()))
+   hit=ranked[0]
+  else:
    subject_by_code={'1103':'社會工作','2103':'社會工作直接服務','3103':'社會政策與社會立法','4103':'人類行為與社會環境','5103':'社會工作研究方法'}
    subject=subject_by_code.get(str(code))
-   if subject and subject in text and '標準答案' in text:
-    # 有些考選部 PDF 的文字層會遺失「試題代號」數字，但科目名稱仍存在；
-    # 此時以官方 PDF 的科目名稱作為區塊識別，仍不接受第三方答案。
-    pos=text.find(subject)
-    hit=re.search(re.escape(subject),text[pos:])
-   else:
+   if not subject or subject not in text or '標準答案' not in text:
     raise ValueError(f'找不到考選部科目代碼 {code}')
-  else:
-   ranked=sorted(hits,key=lambda h:(0 if re.search(r'代號\s*[：:]?\s*
+   pos=text.find(subject)
+   hit=re.search(re.escape(subject),text[pos:])
+   if not hit:
+    raise ValueError(f'找不到考選部科目 {subject}')
+   # 將相對命中位置轉成全域位置。
+   hit_start=pos+hit.start()
+   class Hit:
+    def __init__(self,start): self._start=start
+    def start(self): return self._start
+    @property
+    def end(self): return self._start+len(subject)
+   hit=Hit(hit_start)
  start=hit.start()
  prev=list(re.finditer(r'(?m)^\s*(?:代號\s*[：:]?\s*)?\d{4,6}\s*$',text[:start]))
  if prev:start=prev[-1].start()
