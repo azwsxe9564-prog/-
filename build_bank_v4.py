@@ -163,7 +163,7 @@ def discover_moex_file_url(year,session,subject,file_type='S'):
  if pos<0: raise ValueError(f'考選部查詢頁找不到科目：{subject} ({e})')
  # 從該科目名稱之後抓所有考選部檔案連結，再依 t=Q/S/M 選擇。
  tail=raw[pos:pos+8000]
- links=re.findall(r'href=["\\']([^"\\']*wHandExamQandA_File\\.ashx[^"\\']*)["\\']',tail,re.I)
+ links=re.findall(r"href=['\"]([^'\"]*wHandExamQandA_File\\.ashx[^'\"]*)['\"]",tail,re.I)
  for href in links:
   if re.search(r'(?:[?&]t=)'+re.escape(file_type)+r'(?:&|$)',href,re.I):
    if href.startswith('/'): return 'https://wwwq.moex.gov.tw'+href
