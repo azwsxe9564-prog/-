@@ -36,8 +36,12 @@ jobs:
         continue-on-error: true
         run: python sync_socialworkerdaily.py || echo 'Socialworkerdaily sync failed; keeping current bank.'
 
+      - name: Rebuild and verify all historical exam answers (110-115, 5 subjects, 2 sessions)
+        if: github.event_name == 'workflow_dispatch'
+        run: python build_bank_v4.py
+
       - name: Verify 115-2 official exam updates (actual check every 5 days)
-        if: github.event_name == 'schedule' || github.event_name == 'push'
+        if: github.event_name == 'schedule' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: python import_1152_official.py
 
       - name: Commit synced and verified bank when changed
