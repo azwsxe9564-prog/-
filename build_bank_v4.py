@@ -309,16 +309,16 @@ def build_one(y,subject,slug,code):
  for session in ('1','2'):
   answer_url=''
   try:
-   answer_url=discover_moex_file_url(y,session,subject,'S')
+   answer_url=moex_url(y,session,code,'S')
    expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
    try:
-    correction=fetch(discover_moex_file_url(y,session,subject,'M'))
+    correction=fetch(moex_url(y,session,code,'M'))
     accepted.update(parse_official_correction_pdf(correction,code))
    except Exception:
     pass
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
   if y=='115' and session=='2':
-   source_url=discover_moex_file_url(y,session,subject,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
+   source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
    try:qs=parse_questions(pdf_text(source_url),expected,official_pdf=True)
    except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-question','url':source_url,'error':str(e)});continue
   else:
