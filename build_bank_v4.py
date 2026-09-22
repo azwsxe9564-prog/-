@@ -122,8 +122,8 @@ def _answer_cells(raw):
 
 def parse_official_answers_pdf(raw,code):
  text=_pdf_text_raw(raw)
- m=re.search(r'單選題數\\s*[:：]?\\s*(\\d+)\\s*題',text)
- if not m:m=re.search(r'共\\s*(\\d+)\\s*題',text)
+ m=re.search(r'單選題數\s*[:：]?\s*(\d+)\s*題',text)
+ if not m:m=re.search(r'共\s*(\d+)\s*題',text)
  expected=int(m.group(1)) if m else None
  letters=_answer_cells(raw)
  if expected is None: expected=len(letters)
@@ -142,7 +142,7 @@ def parse_official_correction_pdf(raw,code):
  notes=notes.replace('\\n',' ')
  out={}
  for q in corrected:
-  m=re.search(rf'第\\s*{q}\\s*題(.*?)(?=第\\s*\\d+\\s*題|標準答案|$)',notes,re.S)
+  m=re.search(rf'第\s*{q}\s*題(.*?)(?=第\s*\d+\s*題|標準答案|$)',notes,re.S)
   seg=m.group(1) if m else ''
   if '一律給分' in seg:
    out[q]=[0,1,2,3]; continue
@@ -152,7 +152,7 @@ def parse_official_correction_pdf(raw,code):
     if ch in 'ABCD': vals.append('ABCD'.index(ch))
   if '均給分' in seg and vals:
    out[q]=sorted(set(vals)); continue
-  m2=re.search(r'(?:更正(?:答案)?(?:為|成)|改(?:為|成)|答案(?:由[^ABCDＡＢＣＤ]+)?(?:為|成))\\s*([ABCDＡＢＣＤ])',seg)
+  m2=re.search(r'(?:更正(?:答案)?(?:為|成)|改(?:為|成)|答案(?:由[^ABCDＡＢＣＤ]+)?(?:為|成))\s*([ABCDＡＢＣＤ])',seg)
   if m2:
    out[q]=['ABCD'.index(norm(m2.group(1)))]; continue
   if vals: out[q]=sorted(set(vals))
