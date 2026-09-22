@@ -8,7 +8,6 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 from pathlib import Path
-from datetime import datetime, timezone
 from pypdf import PdfReader
 try:
  import fitz
@@ -107,53 +106,6 @@ def _answer_cells(raw,expected=None):
  letters=re.findall(r'(?m)^\s*([ABCD#])\s*$',tail)
  return letters[:expected] if expected else letters
 
-def build_one(y,subject,slug,code):
- results=[]; failures=[]
- for session in ('1','2'):
-  answer_url=moex_url(y,session,code,'S')
-  try:
-   expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
-   try:
-    correction=fetch(moex_url(y,session,code,'M'))
-    accepted.update(parse_official_correction_pdf(correction,code))
-   except Exception:
-    pass
-  except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
-  if y=='115' and session=='2':
-   source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
-   try:qs=parse_questions(pdf_text(source_url),expected,official_pdf=True)
-   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-question','url':source_url,'error':str(e)});continue
-  else:
-   source_url=social_url(y,session,slug); source_name='社工日常 socialworkerdaily'; explanation_source='社工日常解析'; default_exp=''
-   try:qs=parse_questions(html_text(fetch(source_url)),expected)
-   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'source','url':source_url,'error':str(e)});continue
-  nums=[q['number'] for q in qs]
-  if len(qs)!=expected or nums!=list(range(1,expected+1)):
-   failures.append({'year':y,'session':session,'subject':subject,'stage':'question-count','expected_from_moex':expected,'parsed':len(qs),'url':source_url});continue
-  for q in qs:
-   vals=accepted[q['number']]
-   results.append({'id':f'{y}-{session}-{subject}-{q["number"]}','year':y,'session':session,'subject':subject,'number':q['number'],'question':q['question'],'choices':q['choices'],'answer':vals[0],'accepted_answers':vals,'explanation':q.get('explanation') or default_exp,'source':source_url,'answer_source':answer_url,'source_name':source_name,'answer_authority':'考選部測驗式試題標準答案','historical_answer_verification_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),'answer_verified':True,'explanation_source':explanation_source,'corrected':len(vals)!=1})
- return results,failures
-
-def main():
- jobs=[(y,s,slug,code) for y in YEARS for s,(slug,code) in SUBJECTS.items()]
- all_items=[];failures=[]
- with ThreadPoolExecutor(max_workers=3) as ex:
-  fs={ex.submit(build_one,*j):j for j in jobs}
-  for f in as_completed(fs):
-   y,s,_,_=fs[f]
-   try:
-    items,errs=f.result();all_items.extend(items);failures.extend(errs);print('OK' if items else 'FAIL',y,s,len(items))
-   except Exception as e:failures.append({'year':y,'subject':s,'stage':'worker','error':str(e)})
- unique={x['id']:x for x in all_items};all_items=sorted(unique.values(),key=lambda x:(x['year'],x['session'],x['subject'],x['number']))
- papers=sorted({(x['year'],x['session'],x['subject']) for x in all_items}); counts={}
- for q in all_items:
-  k=f"{q['year']}-{q['session']}-{q['subject']}";counts[k]=counts.get(k,0)+1
- meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.1 + MOEX-official-count-and-pdf-parser-with-robust-code-detection'}
- (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
- print(json.dumps(meta,ensure_ascii=False,indent=2))
- if len(papers)!=60 or failures:raise SystemExit(1)
-if __name__=='__main__':main()
 def clean(s):return re.sub(r'[ \t\r\n]+',' ',s).strip()
 def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
 
@@ -275,6 +227,30 @@ def parse_official_answers(text,code):
   for token in re.split('或',norm(x.group(2))):vals += ['ABCD'.index(ch) for ch in token if ch in 'ABCD']
   if vals:accepted[int(x.group(1))]=sorted(set(vals))
  return expected,accepted
+
+def parse_official_answers_pdf(raw,code):
+ text=_pdf_text_raw(raw)
+ m=re.search(r'單選題數\s*[:：]?\s*(\d+)\s*題',text)
+ if not m:m=re.search(r'共\s*(\d+)\s*題',text)
+ expected=int(m.group(1)) if m else None
+ letters=_answer_cells(raw,expected)
+ if expected is None: expected=len(letters)
+ if expected<=0 or len(letters)<expected:
+  raise ValueError(f'考選部 {code} 公布答案不足：應有{expected}題，實得{len(letters)}')
+ accepted={i:(['ABCD'.index(a)] if a in 'ABCD' else [0,1,2,3]) for i,a in enumerate(letters,1)}
+ return expected,accepted
+
+def parse_official_correction_pdf(raw,code):
+ text=_pdf_text_raw(raw).replace('\\n',' ')
+ out={}
+ for m in re.finditer(r'第\s*(\d+)\s*題\s*答\s*([ABCDＡＢＣＤ]+(?:\s*或\s*[ABCDＡＢＣＤ]+)+)\s*者均給分',text):
+  vals=[]
+  for token in re.split(r'\s*或\s*',norm(m.group(2))):
+   vals.extend('ABCD'.index(ch) for ch in token if ch in 'ABCD')
+  if vals: out[int(m.group(1))]=sorted(set(vals))
+ for m in re.finditer(r'第\s*(\d+)\s*題[^。；;]*?一律給分',text):
+  out[int(m.group(1))]=[0,1,2,3]
+ return out
 
 def exam_code(y,s):return f'{y}{"030" if s=="1" else "100"}'
 def social_url(y,s,slug):return f'{BASE}{y}-{s}-{slug}/'
