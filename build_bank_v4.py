@@ -302,7 +302,8 @@ def build_one(y,subject,slug,code):
  for session in ('1','2'):
   answer_url=moex_url(y,session,code,'S')
   try:
-   expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)\n   try:
+   expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
+   try:
     correction=fetch(moex_url(y,session,code,'M'))\n    accepted.update(parse_official_correction_pdf(correction,code))
    except Exception:
     pass
