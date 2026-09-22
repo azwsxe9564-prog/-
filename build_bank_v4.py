@@ -8,6 +8,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 from pathlib import Path
+from datetime import datetime, timezone
 from pypdf import PdfReader
 try:
  import fitz
@@ -131,7 +132,7 @@ def build_one(y,subject,slug,code):
    failures.append({'year':y,'session':session,'subject':subject,'stage':'question-count','expected_from_moex':expected,'parsed':len(qs),'url':source_url});continue
   for q in qs:
    vals=accepted[q['number']]
-   results.append({'id':f'{y}-{session}-{subject}-{q["number"]}','year':y,'session':session,'subject':subject,'number':q['number'],'question':q['question'],'choices':q['choices'],'answer':vals[0],'accepted_answers':vals,'explanation':q.get('explanation') or default_exp,'source':source_url,'answer_source':answer_url,'source_name':source_name,'answer_authority':'考選部測驗式試題標準答案','answer_verified':True,'explanation_source':explanation_source,'corrected':len(vals)!=1})
+   results.append({'id':f'{y}-{session}-{subject}-{q["number"]}','year':y,'session':session,'subject':subject,'number':q['number'],'question':q['question'],'choices':q['choices'],'answer':vals[0],'accepted_answers':vals,'explanation':q.get('explanation') or default_exp,'source':source_url,'answer_source':answer_url,'source_name':source_name,'answer_authority':'考選部測驗式試題標準答案','historical_answer_verification_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),'answer_verified':True,'explanation_source':explanation_source,'corrected':len(vals)!=1})
  return results,failures
 
 def main():
