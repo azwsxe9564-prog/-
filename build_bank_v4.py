@@ -121,7 +121,6 @@ def official_block(text,code):
    class Hit:
     def __init__(self,start): self._start=start
     def start(self): return self._start
-    @property
     def end(self): return self._start+len(subject)
    hit=Hit(hit_start)
  start=hit.start()
