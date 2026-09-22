@@ -79,7 +79,26 @@ def pdf_text(url):
 
 def answer_data(subject_code, answer_url):
     raw=fetch_pdf(answer_url)
-    expected,accepted=b.parse_official_answers_pdf(raw,subject_code)
+    try:
+        expected,accepted=b.parse_official_answers_pdf(raw,subject_code)
+    except Exception as e:
+        debug={
+            'subject_code':subject_code,
+            'answer_url':answer_url,
+            'error':repr(e),
+            'raw_bytes':len(raw),
+            'fitz_available':bool(getattr(b,'fitz',None)),
+        }
+        try:
+            debug['fallback_cells']=b._answer_cells(raw,None)
+        except Exception as e2:
+            debug['fallback_cells_error']=repr(e2)
+        try:
+            debug['pdf_text_head']=b._pdf_text_raw(raw)[:2000]
+        except Exception as e3:
+            debug['pdf_text_error']=repr(e3)
+        Path('data/debug_answer_parser.json').write_text(json.dumps(debug,ensure_ascii=False,indent=2),encoding='utf-8')
+        raise
     try:
         correction_url=answer_url.replace('&t=S','&t=M')
         correction=fetch_pdf(correction_url)
