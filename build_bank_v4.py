@@ -52,6 +52,8 @@ def fetch(url,retries=5):
    req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 social-worker-exam-builder/10.1','Accept':'text/html,application/xhtml+xml,application/pdf,*/*','Accept-Encoding':'identity','Connection':'close'})
    with urllib.request.urlopen(req,timeout=90) as r:data=r.read()
    if not data: raise OSError('empty response')
+   if 'wHandExamQandA_File.ashx' in url and not data.lstrip().startswith(b'%PDF'):
+    raise OSError(f'考選部檔案非PDF，疑似暫時性回應：{data[:40]!r}')
    return data
   except Exception as e:
    last=e
@@ -357,7 +359,7 @@ def build_one(y,subject,slug,code):
 def main():
  jobs=[(y,s,slug,code) for y in YEARS for s,(slug,code) in SUBJECTS.items()]
  all_items=[];failures=[]
- with ThreadPoolExecutor(max_workers=3) as ex:
+ with ThreadPoolExecutor(max_workers=1) as ex:
   fs={ex.submit(build_one,*j):j for j in jobs}
   for f in as_completed(fs):
    y,s,_,_=fs[f]
