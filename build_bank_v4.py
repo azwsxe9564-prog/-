@@ -304,7 +304,8 @@ def build_one(y,subject,slug,code):
   try:
    expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
    try:
-    correction=fetch(moex_url(y,session,code,'M'))\n    accepted.update(parse_official_correction_pdf(correction,code))
+    correction=fetch(moex_url(y,session,code,'M'))
+    accepted.update(parse_official_correction_pdf(correction,code))
    except Exception:
     pass
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
