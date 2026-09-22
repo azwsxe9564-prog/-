@@ -101,6 +101,12 @@ def answer_data(subject_code, answer_url):
         Path('data/debug_answer_parser.json').write_text(json.dumps(debug,ensure_ascii=False,indent=2),encoding='utf-8')
         raise
     try:
+        debug_cells=b._answer_cells(raw,expected)
+        debug_path=Path('data/debug_answer_parser.json')
+        debug_path.write_text(json.dumps({'subject_code':subject_code,'expected':expected,'cells':debug_cells,'accepted':accepted},ensure_ascii=False,indent=2),encoding='utf-8')
+    except Exception:
+        pass
+    try:
         correction_url=answer_url.replace('&t=S','&t=M')
         correction=fetch_pdf(correction_url)
         accepted.update(b.parse_official_correction_pdf(correction,subject_code))
