@@ -341,6 +341,8 @@ def build_one(y,subject,slug,code):
   try:
    answer_url=moex_url(y,session,code,'S')
    expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
+   official_original_answers={k:list(v) for k,v in accepted.items()}
+   correction_records={}
    correction_url=moex_url(y,session,code,'M')
    try:
     correction=fetch(correction_url)
@@ -354,7 +356,10 @@ def build_one(y,subject,slug,code):
      raise RuntimeError(f'考選部更正答案檔抓取失敗：{correction_url}：{e}') from e
    if correction is not None:
     try:
-     accepted.update(parse_official_correction_pdf(correction,code))
+     parsed_corrections=parse_official_correction_pdf(correction,code)
+     for qno,vals in parsed_corrections.items():
+      correction_records[qno]={'original':list(accepted.get(qno,[])),'final':list(vals),'source':correction_url}
+     accepted.update(parsed_corrections)
     except Exception as e:
      raise RuntimeError(f'考選部更正答案檔解析失敗：{correction_url}：{e}') from e
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
@@ -371,7 +376,7 @@ def build_one(y,subject,slug,code):
    failures.append({'year':y,'session':session,'subject':subject,'stage':'question-count','expected_from_moex':expected,'parsed':len(qs),'url':source_url});continue
   for q in qs:
    vals=accepted[q['number']]
-   results.append({'id':f'{y}-{session}-{subject}-{q["number"]}','year':y,'session':session,'subject':subject,'number':q['number'],'question':q['question'],'choices':q['choices'],'answer':vals[0],'accepted_answers':vals,'explanation':q.get('explanation') or default_exp,'source':source_url,'answer_source':answer_url,'source_name':source_name,'answer_authority':'考選部測驗式試題標準答案','answer_verified':True,'explanation_source':explanation_source,'corrected':len(vals)!=1})
+   results.append({'id':f'{y}-{session}-{subject}-{q["number"]}','year':y,'session':session,'subject':subject,'number':q['number'],'question':q['question'],'choices':q['choices'],'answer':vals[0],'accepted_answers':vals,'explanation':q.get('explanation') or default_exp,'source':source_url,'answer_source':answer_url,'source_name':source_name,'answer_authority':'考選部測驗式試題標準答案','answer_verified':True,'official_original_answer':official_original_answers.get(q['number'],[]),'official_final_answer':list(vals),'correction':correction_records.get(q['number']),'explanation_source':explanation_source,'corrected':bool(q['number'] in correction_records)})
  return results,failures
 
 def main():
@@ -388,7 +393,7 @@ def main():
  papers=sorted({(x['year'],x['session'],x['subject']) for x in all_items}); counts={}
  for q in all_items:
   k=f"{q['year']}-{q['session']}-{q['subject']}";counts[k]=counts.get(k,0)+1
- meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.1 + MOEX-official-count-and-pdf-parser-with-robust-code-detection + strict-correction-verification'}
+ meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','answer_provenance':'每題答案直接取自考選部標準答案；更正題另保存原答案、最終答案與官方更正來源','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.1 + MOEX-official-count-and-pdf-parser-with-robust-code-detection + strict-correction-verification'}
  (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
  print(json.dumps(meta,ensure_ascii=False,indent=2))
  if len(papers)!=60 or failures:raise SystemExit(1)
