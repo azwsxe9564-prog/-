@@ -97,27 +97,41 @@ def _pdf_text_raw(raw):
  try:return '\\n'.join(page.get_text('text') for page in doc)
  finally:doc.close()
 
-def _answer_cells(raw):
+def _answer_cells(raw,expected=None):
  if not fitz: raise RuntimeError('PyMuPDF 未安裝，無法用座標解析考選部答案表')
  doc=fitz.open(stream=raw,filetype='pdf')
  try:
-  words=[]
+  pages=[]
   for page in doc:
-   for w in page.get_text('words'):
+   all_words=page.get_text('words')
+   q1=[float(w[1]) for w in all_words if '第1題' in str(w[4]).replace(' ','')]
+   y_start=min(q1) if q1 else 0.0
+   cand=[]
+   for w in all_words:
     x0,y0,x1,y1,t=w[:5]
     t=norm(str(t))
-    if t in {'A','B','C','D','#'}:
-     words.append((page.number,float(x0),float(y0),float(x1),float(y1),t))
-   all_words=page.get_text('words')
-   y_q1=[float(w[1]) for w in all_words if '第1題' in str(w[4]).replace(' ','')]
-   y_start=min(y_q1) if y_q1 else 0.0
-   y_end_candidates=[float(w[1]) for w in all_words if str(w[4]).replace(' ','') in {'複選題數：','複選題數','備註：','備註'}]
-   y_end=min(y_end_candidates) if y_end_candidates else float('inf')
-   words=[z for z in words if z[0]!=page.number or not (z[2] <= y_start or z[2] >= y_end)]
-  # The official table is laid out in rows; coordinates, not PDF text extraction order,
-  # determine the question order.
-  words.sort(key=lambda z:(z[0],round(z[2]/2)*2,z[1]))
-  return [w[5] for w in words]
+    if t in {'A','B','C','D','#'} and float(y0)>y_start:
+     cand.append((float(x0),float(y0),t))
+   cand.sort(key=lambda z:(z[1],z[0]))
+   groups=[]
+   for item in cand:
+    if not groups or item[1]-groups[-1][0]>3:
+     groups.append([item[1],[]])
+    groups[-1][1].append(item)
+   # Answer rows contain many isolated A/B/C/D cells; notes below the table are
+   # deliberately ignored by stopping once the published single-choice count is met.
+   selected=[]
+   for gy,items in groups:
+    if len(items)<2: continue
+    items.sort(key=lambda z:z[0])
+    selected.extend([x[2] for x in items])
+    if expected and len(selected)>=expected: break
+   pages.append(selected)
+  letters=[]
+  for p in pages:
+   letters.extend(p)
+   if expected and len(letters)>=expected: break
+  return letters
  finally:doc.close()
 
 def parse_official_answers_pdf(raw,code):
@@ -125,7 +139,7 @@ def parse_official_answers_pdf(raw,code):
  m=re.search(r'單選題數\s*[:：]?\s*(\d+)\s*題',text)
  if not m:m=re.search(r'共\s*(\d+)\s*題',text)
  expected=int(m.group(1)) if m else None
- letters=_answer_cells(raw)
+ letters=_answer_cells(raw,expected)
  if expected is None: expected=len(letters)
  if expected<=0 or len(letters)<expected:
   raise ValueError(f'考選部 {code} 座標答案不足：應有{expected}題，實得{len(letters)}')
