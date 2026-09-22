@@ -91,6 +91,73 @@ def pdf_text(url):
   except Exception: return text
  return text
 
+def _pdf_text_raw(raw):
+ if not fitz: raise RuntimeError('PyMuPDF 未安裝')
+ doc=fitz.open(stream=raw,filetype='pdf')
+ try:return '\\n'.join(page.get_text('text') for page in doc)
+ finally:doc.close()
+
+def _answer_cells(raw):
+ if not fitz: raise RuntimeError('PyMuPDF 未安裝，無法用座標解析考選部答案表')
+ doc=fitz.open(stream=raw,filetype='pdf')
+ try:
+  words=[]
+  for page in doc:
+   for w in page.get_text('words'):
+    x0,y0,x1,y1,t=w[:5]
+    t=norm(str(t))
+    if t in {'A','B','C','D','#'}:
+     words.append((page.number,float(x0),float(y0),float(x1),float(y1),t))
+   all_words=page.get_text('words')
+   y_q1=[float(w[1]) for w in all_words if '第1題' in str(w[4]).replace(' ','')]
+   y_start=min(y_q1) if y_q1 else 0.0
+   y_end_candidates=[float(w[1]) for w in all_words if str(w[4]).replace(' ','') in {'複選題數：','複選題數','備註：','備註'}]
+   y_end=min(y_end_candidates) if y_end_candidates else float('inf')
+   words=[z for z in words if z[0]!=page.number or not (z[2] <= y_start or z[2] >= y_end)]
+  # The official table is laid out in rows; coordinates, not PDF text extraction order,
+  # determine the question order.
+  words.sort(key=lambda z:(z[0],round(z[2]/2)*2,z[1]))
+  return [w[5] for w in words]
+ finally:doc.close()
+
+def parse_official_answers_pdf(raw,code):
+ text=_pdf_text_raw(raw)
+ m=re.search(r'單選題數\\s*[:：]?\\s*(\\d+)\\s*題',text)
+ if not m:m=re.search(r'共\\s*(\\d+)\\s*題',text)
+ expected=int(m.group(1)) if m else None
+ letters=_answer_cells(raw)
+ if expected is None: expected=len(letters)
+ if expected<=0 or len(letters)<expected:
+  raise ValueError(f'考選部 {code} 座標答案不足：應有{expected}題，實得{len(letters)}')
+ letters=letters[:expected]
+ accepted={i:(['ABCD'.index(a)] if a in 'ABCD' else [0,1,2,3]) for i,a in enumerate(letters,1)}
+ return expected,accepted
+
+def parse_official_correction_pdf(raw,code):
+ text=_pdf_text_raw(raw)
+ letters=_answer_cells(raw)
+ corrected=[i for i,a in enumerate(letters,1) if a=='#']
+ if not corrected:return {}
+ notes=text[text.find('備註'):] if '備註' in text else text
+ notes=notes.replace('\\n',' ')
+ out={}
+ for q in corrected:
+  m=re.search(rf'第\\s*{q}\\s*題(.*?)(?=第\\s*\\d+\\s*題|標準答案|$)',notes,re.S)
+  seg=m.group(1) if m else ''
+  if '一律給分' in seg:
+   out[q]=[0,1,2,3]; continue
+  vals=[]
+  for token in re.findall(r'[ABCDＡＢＣＤ]+',norm(seg)):
+   for ch in token:
+    if ch in 'ABCD': vals.append('ABCD'.index(ch))
+  if '均給分' in seg and vals:
+   out[q]=sorted(set(vals)); continue
+  m2=re.search(r'(?:更正(?:答案)?(?:為|成)|改(?:為|成)|答案(?:由[^ABCDＡＢＣＤ]+)?(?:為|成))\\s*([ABCDＡＢＣＤ])',seg)
+  if m2:
+   out[q]=['ABCD'.index(norm(m2.group(1)))]; continue
+  if vals: out[q]=sorted(set(vals))
+ return out
+
 def clean(s):return re.sub(r'[ \t\r\n]+',' ',s).strip()
 def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
 
@@ -220,7 +287,7 @@ def build_one(y,subject,slug,code):
  results=[]; failures=[]
  for session in ('1','2'):
   answer_url=moex_url(y,session,code,'S')
-  try:expected,accepted=parse_official_answers(pdf_text(answer_url),code)
+  try:\n   expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)\n   try:\n    correction=fetch(moex_url(y,session,code,'M'))\n    accepted.update(parse_official_correction_pdf(correction,code))\n   except Exception:\n    pass
   except Exception as e:failures.append({'year':y,'session':session,'subject':subject,'stage':'official-answer','url':answer_url,'error':str(e)});continue
   if y=='115' and session=='2':
    source_url=moex_url(y,session,code,'Q'); source_name='考選部官方考畢試題'; explanation_source='考選部官方試題未提供解析'; default_exp='官方未提供解析；答案以考選部測驗式試題標準答案為準。'
