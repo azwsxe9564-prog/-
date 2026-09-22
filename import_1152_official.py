@@ -28,6 +28,7 @@ SUBJECTS={
 }
 # 考選部頁面的 s 參數是科目序號（0301~0305），不是試題代號（1103~5103）。
 MOEX_S={'1103':'0301','2103':'0302','3103':'0303','4103':'0304','5103':'0305'}
+DEBUG_CELLS={}
 
 
 def curl(url, output, cookie_jar=None):
@@ -102,6 +103,7 @@ def answer_data(subject_code, answer_url):
         raise
     try:
         debug_cells=b._answer_cells(raw,expected)
+        DEBUG_CELLS[subject_code]=debug_cells
         debug_path=Path('data/debug_answer_parser.json')
         debug_path.write_text(json.dumps({'subject_code':subject_code,'expected':expected,'cells':debug_cells,'accepted':accepted},ensure_ascii=False,indent=2),encoding='utf-8')
     except Exception:
@@ -187,6 +189,7 @@ def main():
     ids=[q['id'] for q in merged]
     if len(ids)!=len(set(ids)): raise RuntimeError('題目 ID 重複')
     meta=data.setdefault('meta',{})
+    meta['debug_official_answer_cells_115_2']=DEBUG_CELLS
     meta['official_115_2_verified']=True
     meta['official_115_2_last_checked_at']=datetime.now(timezone.utc).isoformat().replace('+00:00','Z')
     meta['official_115_2_sync_note']='每5天重新檢查考選部115-2試題與標準答案；若官方資料變更則更新題庫，若來源暫時失敗則本次部署停止並保留既有線上版本。'
