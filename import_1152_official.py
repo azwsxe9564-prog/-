@@ -1,4 +1,5 @@
 import html
+import os
 import io
 import json
 import re
@@ -131,6 +132,8 @@ def question_data(subject, expected, question_url=None):
 
 
 def should_check(data):
+    if os.getenv('FORCE_OFFICIAL_115_2') == '1':
+        return True
     last = data.get('meta', {}).get('official_115_2_last_checked_at')
     if not last:
         return True
