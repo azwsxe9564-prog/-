@@ -228,6 +228,30 @@ def parse_official_answers(text,code):
   if vals:accepted[int(x.group(1))]=sorted(set(vals))
  return expected,accepted
 
+def parse_official_answers_pdf(raw,code):
+ text=_pdf_text_raw(raw)
+ m=re.search(r'單選題數\s*[:：]?\s*(\d+)\s*題',text)
+ if not m:m=re.search(r'共\s*(\d+)\s*題',text)
+ expected=int(m.group(1)) if m else None
+ letters=_answer_cells(raw,expected)
+ if expected is None: expected=len(letters)
+ if expected<=0 or len(letters)<expected:
+  raise ValueError(f'考選部 {code} 公布答案不足：應有{expected}題，實得{len(letters)}')
+ accepted={i:(['ABCD'.index(a)] if a in 'ABCD' else [0,1,2,3]) for i,a in enumerate(letters,1)}
+ return expected,accepted
+
+def parse_official_correction_pdf(raw,code):
+ text=_pdf_text_raw(raw).replace('\\n',' ')
+ out={}
+ for m in re.finditer(r'第\s*(\d+)\s*題\s*答\s*([ABCDＡＢＣＤ]+(?:\s*或\s*[ABCDＡＢＣＤ]+)+)\s*者均給分',text):
+  vals=[]
+  for token in re.split(r'\s*或\s*',norm(m.group(2))):
+   vals.extend('ABCD'.index(ch) for ch in token if ch in 'ABCD')
+  if vals: out[int(m.group(1))]=sorted(set(vals))
+ for m in re.finditer(r'第\s*(\d+)\s*題[^。；;]*?一律給分',text):
+  out[int(m.group(1))]=[0,1,2,3]
+ return out
+
 def exam_code(y,s):return f'{y}{"030" if s=="1" else "100"}'
 def social_url(y,s,slug):return f'{BASE}{y}-{s}-{slug}/'
 
@@ -277,18 +301,7 @@ def main():
  (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
  print(json.dumps(meta,ensure_ascii=False,indent=2))
  if len(papers)!=60 or failures:raise SystemExit(1)
-if __name__=='__main__':main()def parse_official_correction_pdf(raw,code):
- text=_pdf_text_raw(raw).replace('\\n',' ')
- out={}
- for m in re.finditer(r'第\s*(\d+)\s*題\s*答\s*([ABCDＡＢＣＤ]+(?:\s*或\s*[ABCDＡＢＣＤ]+)+)\s*者均給分',text):
-  vals=[]
-  for token in re.split(r'\s*或\s*',norm(m.group(2))):
-   vals.extend('ABCD'.index(ch) for ch in token if ch in 'ABCD')
-  if vals: out[int(m.group(1))]=sorted(set(vals))
- for m in re.finditer(r'第\s*(\d+)\s*題[^。；;]*?一律給分',text):
-  out[int(m.group(1))]=[0,1,2,3]
- return out
-
+if __name__=='__main__':main()
 def clean(s):return re.sub(r'[ \t\r\n]+',' ',s).strip()
 def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upper()
 
