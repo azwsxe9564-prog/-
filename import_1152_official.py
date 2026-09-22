@@ -78,8 +78,14 @@ def pdf_text(url):
 
 
 def answer_data(subject_code, answer_url):
-    text=pdf_text(answer_url).translate(str.maketrans('ＡＢＣＤ','ABCD'))
-    expected,accepted=b.parse_official_answers(text,subject_code)
+    raw=fetch_pdf(answer_url)
+    expected,accepted=b.parse_official_answers_pdf(raw,subject_code)
+    try:
+        correction_url=answer_url.replace('&t=S','&t=M')
+        correction=fetch_pdf(correction_url)
+        accepted.update(b.parse_official_correction_pdf(correction,subject_code))
+    except Exception:
+        pass
     return expected,accepted
 
 
