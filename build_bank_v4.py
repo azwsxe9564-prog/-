@@ -85,9 +85,40 @@ def norm(s):return s.translate(str.maketrans('ＡＢＣＤ','ABCD')).strip().upp
 
 def parse_questions(text, expected_count=None, official_pdf=False):
  if official_pdf:
-  text=text.replace('\r','\n').replace('','A ').replace('','B ').replace('','C ').replace('','D ')
+  text=text.replace('\r','\n')
+  # 考選部試題 PDF 的選項標記是私有字元 ；直接以這四個標記切題，
+  # 避免 PDF 文字層把 A/B/C/D 或換行位置改寫後造成整份題目變成 0 題。
   starts=list(re.finditer(r'(?m)^\s*(\d{1,3})\s+(?=\S)',text))
- else: starts=list(re.finditer(r'(?m)^\s*(?:#{1,6}\s*)?(\d{1,3})\s*[\.、．)）]\s*',text))
+  out=[]
+  for i,m in enumerate(starts):
+   n=int(m.group(1))
+   if n<1 or (expected_count and n>expected_count): continue
+   end=starts[i+1].start() if i+1<len(starts) else len(text)
+   block=text[m.end():end]
+   marks=list(re.finditer(r'[]',block))
+   if len(marks)<4:
+    # 若系統 PDF 文字層已把私有字元轉成英文字母，退回 A-D 標記。
+    marks=list(re.finditer(r'(?m)(?:^|\n)\s*([ABCD])\s+',block))
+    marker_mode='letters'
+   else:
+    marker_mode='glyphs'
+   if len(marks)<4: continue
+   marks=marks[:4]
+   q=clean(block[:marks[0].start()])
+   choices=[]
+   for j,mark in enumerate(marks):
+    epos=marks[j+1].start() if j<3 else len(block)
+    if marker_mode=='glyphs':
+     c=block[mark.end():epos]
+    else:
+     c=block[mark.end():epos]
+    choices.append(clean(c))
+   if not q or any(not x for x in choices): continue
+   out.append({'number':n,'question':q,'choices':choices,'explanation':''})
+  unique={q['number']:q for q in out}
+  return [unique[n] for n in sorted(unique)]
+
+ starts=list(re.finditer(r'(?m)^\s*(?:#{1,6}\s*)?(\d{1,3})\s*[\.\、．)）]\s*',text))
  out=[]
  for i,m in enumerate(starts):
   n=int(m.group(1))
@@ -102,7 +133,7 @@ def parse_questions(text, expected_count=None, official_pdf=False):
   if not chosen:continue
   marks=chosen; q=clean(block[:marks[0].start()]); choices=[]
   for j,mark in enumerate(marks):
-   e=marks[j+1].start() if j<3 else len(block); c=block[mark.end():e]
+   epos=marks[j+1].start() if j<3 else len(block); c=block[mark.end():epos]
    if j==3:c=re.split(r'\n\s*(?:解析|看更多|備註|試題代號)\s*[:：]?',c,maxsplit=1)[0]
    choices.append(clean(c))
   if not q or any(not c for c in choices):continue
