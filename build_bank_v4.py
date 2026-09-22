@@ -118,29 +118,40 @@ def _answer_cells(raw,expected=None):
  variants=_pdf_text_variants(raw)
  candidates=[]
  for name,text in variants:
+  # 新版：先從「第1題」或「標準答案」後抓獨立答案字母。
   pos=text.find('第1題')
   if pos<0: pos=text.find('第 1 題')
   if pos<0: pos=text.find('標準答案')
-  if pos<0: continue
-  tail=text[pos:]
-  # 官方答案表的答案字母是獨立 token；先取前 expected 個，避免把備註中的字母混入。
-  letters=re.findall(r'(?<![A-Za-zＡ-Ｚａ-ｚ])([ABCD#])(?![A-Za-zＡ-Ｚａ-ｚ])',tail)
-  if expected and len(letters)>=expected:
-   return letters[:expected]
-  # 舊版考選部答案表常以「01 - 10 CBBBDADADD」分段列出，不含「第1題」文字。
+  if pos>=0:
+   tail=text[pos:]
+   letters=re.findall(r'(?<![A-Za-zＡ-Ｚａ-ｚ])([ABCD#])(?![A-Za-zＡ-Ｚａ-ｚ])',tail)
+   if expected and len(letters)>=expected:
+    return letters[:expected]
+   candidates.append((name+'-new',len(letters),letters))
+
+  # 舊版考選部答案表常以「01 - 10 CBBBDADADD」分段列出。
+  # 有些 PDF 文字層會在每個答案字母之間插入空白，因此同時支援連續與分隔兩種格式。
   chunks=[]
-  for text2 in [text]:
-   for m in re.finditer(r'(?m)\\b(\\d{1,2})\\s*[-－~～]\\s*(\\d{1,3})\\s+([ABCD]{10})\\b',text2):
+  for m in re.finditer(r'(?m)^\\s*(\\d{1,3})\\s*[-－~～]\\s*(\\d{1,3})\\s+((?:[ABCD]\\s*){10})\\s*$',text):
+   a,b=int(m.group(1)),int(m.group(2))
+   seq=re.sub(r'\\s+','',m.group(3))
+   if b-a+1==10 and len(seq)==10:
+    chunks.append((a,seq))
+  if not chunks:
+   for m in re.finditer(r'(?m)^\\s*(\\d{1,3})\\s*[-－~～]\\s*(\\d{1,3})\\s+([ABCD]{10})\\b',text):
     a,b,seq=int(m.group(1)),int(m.group(2)),m.group(3)
-    if b-a+1==10: chunks.append((a,seq))
+    if b-a+1==10:
+     chunks.append((a,seq))
   if chunks:
    flat=[]
-   for a,seq in sorted(chunks): flat.extend(seq)
-   if expected and len(flat)>=expected: return flat[:expected]
-  candidates.append((name,len(letters),letters))
+   for a,seq in sorted(chunks):
+    flat.extend(seq)
+   if expected and len(flat)>=expected:
+    return flat[:expected]
+   candidates.append((name+'-legacy',len(flat),flat))
+
  detail='; '.join(f'{n}:{c}' for n,c,_ in candidates)
  raise ValueError(f'找不到考選部答案表第1題或答案不足：{detail}')
-
 def moex_exam_id(year,session):
  return {'110':{'1':'110030','2':'110111'},'111':{'1':'111030','2':'111110'},'112':{'1':'112030','2':'112110'},'113':{'1':'113030','2':'113100'},'114':{'1':'114030','2':'114100'},'115':{'1':'115030','2':'115100'}}[str(year)][str(session)]
 
