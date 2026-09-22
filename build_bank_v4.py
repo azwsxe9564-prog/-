@@ -98,11 +98,11 @@ def _pdf_text_variants(raw):
  if fitz:
   try:
    doc=fitz.open(stream=raw,filetype='pdf')
-   texts.append(('fitz','\\n'.join(page.get_text('text') for page in doc)))
+   texts.append(('fitz','\n'.join(page.get_text('text') for page in doc)))
    doc.close()
   except Exception: pass
  try:
-  texts.append(('pypdf','\\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)))
+  texts.append(('pypdf','\n'.join((p.extract_text() or '') for p in PdfReader(io.BytesIO(raw)).pages)))
  except Exception: pass
  try:
   with tempfile.TemporaryDirectory() as td:
@@ -134,13 +134,13 @@ def _answer_cells(raw,expected=None):
   # 舊版考選部答案表常以「01 - 10 CBBBDADADD」分段列出。
   # 有些 PDF 文字層會在每個答案字母之間插入空白，因此同時支援連續與分隔兩種格式。
   chunks=[]
-  for m in re.finditer(r'(?m)^\\s*(\\d{1,3})\\s*[-－~～]\\s*(\\d{1,3})\\s+((?:[ABCD]\\s*){10})\\s*$',text):
+  for m in re.finditer(r'(?m)^\s*(\d{1,3})\s*[-－~～]\s*(\d{1,3})\s+((?:[ABCD]\s*){10})\s*$',text):
    a,b=int(m.group(1)),int(m.group(2))
-   seq=re.sub(r'\\s+','',m.group(3))
+   seq=re.sub(r'\s+','',m.group(3))
    if b-a+1==10 and len(seq)==10:
     chunks.append((a,seq))
   if not chunks:
-   for m in re.finditer(r'(?m)^\\s*(\\d{1,3})\\s*[-－~～]\\s*(\\d{1,3})\\s+([ABCD]{10})\\b',text):
+   for m in re.finditer(r'(?m)^\s*(\d{1,3})\s*[-－~～]\s*(\d{1,3})\s+([ABCD]{10})\b',text):
     a,b,seq=int(m.group(1)),int(m.group(2)),m.group(3)
     if b-a+1==10:
      chunks.append((a,seq))
@@ -165,7 +165,7 @@ def discover_moex_file_url(year,session,subject,file_type='S'):
  if pos<0: raise ValueError(f'考選部查詢頁找不到科目：{subject} ({e})')
  # 從該科目名稱之後抓所有考選部檔案連結，再依 t=Q/S/M 選擇。
  tail=raw[pos:pos+8000]
- links=re.findall(r"href=['\"]([^'\"]*wHandExamQandA_File\\.ashx[^'\"]*)['\"]",tail,re.I)
+ links=re.findall(r"href=['\"]([^'\"]*wHandExamQandA_File\.ashx[^'\"]*)['\"]",tail,re.I)
  for href in links:
   if re.search(r'(?:[?&]t=)'+re.escape(file_type)+r'(?:&|$)',href,re.I):
    if href.startswith('/'): return 'https://wwwq.moex.gov.tw'+href
@@ -313,7 +313,7 @@ def parse_official_answers_pdf(raw,code):
  return expected,accepted
 
 def parse_official_correction_pdf(raw,code):
- text=_pdf_text_raw(raw).replace('\\n',' ')
+ text=_pdf_text_raw(raw).replace('\n',' ')
  out={}
  for m in re.finditer(r'第\s*(\d+)\s*題\s*答\s*([ABCDＡＢＣＤ]+(?:\s*或\s*[ABCDＡＢＣＤ]+)+)\s*者均給分',text):
   vals=[]
