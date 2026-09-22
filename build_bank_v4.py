@@ -274,12 +274,19 @@ def official_block(text,code):
  end=hit.end()+nxt.start() if nxt else len(text)
  return text[start:end]
 
-MOEX_S_INDEX={'1103':1,'2103':2,'3103':4,'4103':5,'5103':6}
+def moex_subject_index(year,subject_code):
+ # 110-114 年有「社會工作管理」，因此社政、人類、研究方法分別為 04/05/06。
+ # 115 年取消「社會工作管理」，五科直接依 01~05 排列。
+ year=str(year)
+ if year=='115':
+  return {'1103':1,'2103':2,'3103':3,'4103':4,'5103':5}[str(subject_code)]
+ return {'1103':1,'2103':2,'3103':4,'4103':5,'5103':6}[str(subject_code)]
+
 def moex_url(year,session,subject_code,file_type):
  year=str(year)
  c='105' if year in {'110','111'} else '103'
  prefix='04' if year in {'110','111'} else '03'
- s=f"{prefix}{MOEX_S_INDEX[str(subject_code)]:02d}"
+ s=f"{prefix}{moex_subject_index(year,subject_code):02d}"
  return f'{MOEX}?c={c}&code={exam_code(year,session)}&q=1&s={s}&t={file_type}'
 
 def parse_official_answers(text,code):
@@ -393,7 +400,7 @@ def main():
  papers=sorted({(x['year'],x['session'],x['subject']) for x in all_items}); counts={}
  for q in all_items:
   k=f"{q['year']}-{q['session']}-{q['subject']}";counts[k]=counts.get(k,0)+1
- meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','answer_provenance':'每題答案直接取自考選部標準答案；更正題另保存原答案、最終答案與官方更正來源','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.2 + corrected-MOEX-subject-index-mapping + MOEX-official-count-and-pdf-parser + strict-correction-verification'}
+ meta={'generated_from':BASE+'index/exam/','official_question_count_authority':'考選部各科「單選題數」；系統僅納入測驗式選擇題','official_115_2_source':'https://wwwq.moex.gov.tw/exam/wFrmExamQandASearch.aspx?e=115100&y=2026','answer_authority':'考選部測驗式試題標準答案','source_name':'社工日常 socialworkerdaily + 考選部官方115-2','answer_provenance':'每題答案直接取自考選部標準答案；更正題另保存原答案、最終答案與官方更正來源','years':YEARS,'subjects':list(SUBJECTS.keys()),'papers_selected':60,'papers_ok':len(papers),'papers_failed':len(failures),'items':len(all_items),'paper_question_counts':counts,'failures':failures,'parser_version':'socialworkerdaily-10.2 + year-aware-MOEX-subject-index-mapping + MOEX-official-count-and-pdf-parser + strict-correction-verification'}
  (DATA/'bank.json').write_text(json.dumps({'meta':meta,'questions':all_items},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
  print(json.dumps(meta,ensure_ascii=False,indent=2))
  if len(papers)!=60 or failures:raise SystemExit(1)
