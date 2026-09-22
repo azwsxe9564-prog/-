@@ -307,6 +307,7 @@ def social_url(y,s,slug):return f'{BASE}{y}-{s}-{slug}/'
 def build_one(y,subject,slug,code):
  results=[]; failures=[]
  for session in ('1','2'):
+  answer_url=''
   try:
    answer_url=discover_moex_file_url(y,session,subject,'S')
    expected,accepted=parse_official_answers_pdf(fetch(answer_url),code)
